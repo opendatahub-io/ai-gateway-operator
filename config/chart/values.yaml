@@ -1,6 +1,7 @@
 config:
   platform-type: OpenDataHub
   platform-version: unknown
+# TODO: replace with quay.io/opendatahub/odh-ai-gateway-operator
 image:
   repository: ttl.sh/opendatahub-ai-gateway-operator
   tag: latest
