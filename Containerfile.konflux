@@ -1,0 +1,32 @@
+FROM registry.access.redhat.com/ubi9/go-toolset:1.25.8@sha256:8c5aeac74b4b60dc2e5e44f6b639186b7ec2fec8f0eb9a36d4a32dcf8e255f52 AS builder
+ARG TARGETOS=linux
+ARG TARGETARCH
+ARG CGO_ENABLED=1
+ARG LDFLAGS=""
+
+WORKDIR /opt/app-root/src
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY Makefile Makefile
+COPY api/ api/
+COPY cmd/ cmd/
+COPY internal/ internal/
+COPY pkg/ pkg/
+COPY config/manifests/ config/manifests/
+
+RUN mkdir -p bin && \
+    CGO_ENABLED=${CGO_ENABLED} GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    GOEXPERIMENT=strictfipsruntime \
+    make build-bin BIN_DIR=/opt/app-root/src/bin BIN_NAME=manager LDFLAGS="${LDFLAGS}"
+
+RUN chmod -R a+rX config/manifests/
+
+FROM registry.access.redhat.com/ubi9/ubi-minimal:9.7@sha256:d91be7cea9f03a757d69ad7fcdfcd7849dba820110e7980d5e2a1f46ed06ea3b
+WORKDIR /
+COPY --from=builder /opt/app-root/src/bin/manager /manager
+COPY --from=builder /opt/app-root/src/config/manifests/ /manifests/
+
+USER 65532:65532
+ENTRYPOINT ["/manager"]

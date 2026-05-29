@@ -1,0 +1,21 @@
+config:
+  platform-type: OpenDataHub
+  platform-version: unknown
+image:
+  fullRef: ""
+  repository: ttl.sh/opendatahub-ai-gateway-operator
+  tag: latest
+imagePullSecret: ""
+leaderElect: true
+operatorNamespace: ""
+replicas: 1
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 10m
+    memory: 128Mi
+serviceAccount:
+  annotations: {}
+  name: ""

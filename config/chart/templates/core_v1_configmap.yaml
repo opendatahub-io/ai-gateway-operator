@@ -1,0 +1,15 @@
+apiVersion: v1
+data:
+  {{- with .Values.imagePullSecret }}
+  imagePullSecret: {{ . }}
+  {{- end }}
+  {{- range $key, $val := .Values.config }}
+  {{ $key }}: {{ $val | quote }}
+  {{- end }}
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: opendatahub-ai-gateway-operator
+  name: opendatahub-ai-gateway-config
+  namespace: {{ .Values.operatorNamespace }}
