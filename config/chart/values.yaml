@@ -5,8 +5,8 @@ config:
   platform-type: OpenDataHub
   platform-version: unknown
 image:
-  repository: ttl.sh/opendatahub-ai-gateway-operator
-  tag: latest
+  repository: quay.io/opendatahub/odh-ai-gateway-operator
+  tag: odh-stable
   fullRef: ""
 leaderElect: true
 replicas: 1

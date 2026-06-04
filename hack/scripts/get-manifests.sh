@@ -62,4 +62,4 @@ fetch_component() {
 
 # https://github.com/opendatahub-io/llm-d-batch-gateway-operator/commits/
 # https://github.com/red-hat-data-services/llm-d-batch-gateway-operator/commits
-fetch_component "batchgateway" "llm-d-batch-gateway-operator" "config" "ccb0f443d67c1e988c468c6787aad4a4c8c41157" "554d9416f5112da85f99a407c7d33d257175e550"
+fetch_component "batchgateway" "llm-d-batch-gateway-operator" "config" "716607fcf8514397822b1464aa72694b54690d73" "554d9416f5112da85f99a407c7d33d257175e550"
