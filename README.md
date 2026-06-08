@@ -10,7 +10,7 @@ A Kubernetes operator that manages AI Gateway components for [Open Data Hub](htt
 
 ## Updating Component Manifests
 
-This operator vendors manifests from sub-components into `config/manifests/`. These files are checked into the repository because the container build expects them in the source tree (`COPY config/manifests/` in the Containerfile).
+This operator vendors manifests from sub-components into `config/manifests/`. These files are checked into the repository because the container build expects them in the source tree (`COPY config/manifests/` in the Dockerfile).
 
 When a sub-component's manifests change, update the vendored copy:
 

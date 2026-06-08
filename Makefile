@@ -128,7 +128,7 @@ build: manifests generate fmt vet ## Build manager binary.
 		go build -ldflags "$(LDFLAGS)" -o "$(BIN_DIR)/$(BIN_NAME)" cmd/main.go
 
 .PHONY: build-bin
-build-bin: ## Build manager binary only (for Containerfile; run container-prep on host first).
+build-bin: ## Build manager binary only (for Dockerfile; run container-prep on host first).
 	mkdir -p "$(BIN_DIR)"
 	CGO_ENABLED=$(CGO_ENABLED) GOOS=$(GOOS) GOARCH=$(GOARCH) \
 		go build -ldflags "$(LDFLAGS)" -o "$(BIN_DIR)/$(BIN_NAME)" cmd/main.go
@@ -142,7 +142,7 @@ run: manifests generate fmt vet ## Run a controller from your host.
 
 .PHONY: container-build
 container-build: container-prep ## Build container image with the manager.
-	$(CONTAINER_TOOL) build -f Containerfile --build-arg LDFLAGS="$(LDFLAGS)" -t ${IMG} .
+	$(CONTAINER_TOOL) build -f Dockerfile --build-arg LDFLAGS="$(LDFLAGS)" -t ${IMG} .
 
 .PHONY: container-push
 container-push: ## Push container image with the manager.
