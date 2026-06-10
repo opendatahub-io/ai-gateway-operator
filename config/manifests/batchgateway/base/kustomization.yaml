@@ -5,7 +5,12 @@ resources:
   - ../crd
   - ../rbac
   - ../manager
-  - metrics_service.yaml
+
+labels:
+  - pairs:
+      app.kubernetes.io/name: llm-d-batch-gateway-operator
+      app.kubernetes.io/component: llm-d-batch-gateway
+      app.kubernetes.io/part-of: llm-d-batch-gateway
 
 patches:
   - path: manager_metrics_patch.yaml
@@ -25,7 +30,7 @@ replacements:
     targets:
       - select:
           kind: Deployment
-          name: batch-gateway-operator
+          name: llm-d-batch-gateway-operator
         fieldPaths:
           - spec.template.spec.containers.[name=manager].image
   - source:
@@ -35,7 +40,7 @@ replacements:
     targets:
       - select:
           kind: Deployment
-          name: batch-gateway-operator
+          name: llm-d-batch-gateway-operator
         fieldPaths:
           - spec.template.spec.containers.[name=manager].env.[name=LLM_D_BATCH_GATEWAY_APISERVER_IMAGE].value
   - source:
@@ -45,7 +50,7 @@ replacements:
     targets:
       - select:
           kind: Deployment
-          name: batch-gateway-operator
+          name: llm-d-batch-gateway-operator
         fieldPaths:
           - spec.template.spec.containers.[name=manager].env.[name=LLM_D_BATCH_GATEWAY_PROCESSOR_IMAGE].value
   - source:
@@ -55,6 +60,6 @@ replacements:
     targets:
       - select:
           kind: Deployment
-          name: batch-gateway-operator
+          name: llm-d-batch-gateway-operator
         fieldPaths:
           - spec.template.spec.containers.[name=manager].env.[name=LLM_D_BATCH_GATEWAY_GC_IMAGE].value

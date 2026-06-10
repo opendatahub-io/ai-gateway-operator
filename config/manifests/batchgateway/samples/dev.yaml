@@ -1,7 +1,7 @@
 apiVersion: batch.llm-d.ai/v1alpha1
 kind: LLMBatchGateway
 metadata:
-  name: batch-gateway
+  name: batch-gateway-dev
 spec:
   secretRef:
     name: batch-gateway-secrets

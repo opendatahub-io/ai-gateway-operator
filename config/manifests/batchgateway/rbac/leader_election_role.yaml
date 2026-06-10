@@ -3,7 +3,7 @@ kind: Role
 metadata:
   name: leader-election-role
   labels:
-    app.kubernetes.io/name: batch-gateway-operator
+    app.kubernetes.io/name: llm-d-batch-gateway-operator
     app.kubernetes.io/managed-by: kustomize
 rules:
 - apiGroups:

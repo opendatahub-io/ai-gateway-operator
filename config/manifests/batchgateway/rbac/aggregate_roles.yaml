@@ -11,7 +11,7 @@ metadata:
 rules:
 - apiGroups: ["batch.llm-d.ai"]
   resources: ["llmbatchgateways"]
-  verbs: ["get", "list", "watch", "create", "update", "patch", "delete", "deletecollection"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 - apiGroups: ["batch.llm-d.ai"]
   resources: ["llmbatchgateways/status"]
   verbs: ["get"]

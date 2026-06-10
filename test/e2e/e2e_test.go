@@ -141,7 +141,7 @@ func TestAIGateway(t *testing.T) {
 		},
 		workloadDeploy: &appsv1.Deployment{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      "batch-gateway-operator",
+				Name:      "llm-d-batch-gateway-operator",
 				Namespace: operatorNamespace,
 			},
 		},

@@ -169,7 +169,7 @@ rules:
 - apiGroups:
   - rbac.authorization.k8s.io
   resourceNames:
-  - batch-gateway-operator
+  - llm-d-batch-gateway-operator
   resources:
   - clusterrolebindings
   verbs:
@@ -189,7 +189,7 @@ rules:
 - apiGroups:
   - rbac.authorization.k8s.io
   resourceNames:
-  - batch-gateway-operator
+  - llm-d-batch-gateway-operator
   - llmbatchgateway-admin
   - llmbatchgateway-view
   resources:

@@ -5,8 +5,3 @@ namespace: opendatahub
 
 resources:
   - ../../base
-
-labels:
-  - pairs:
-      app.kubernetes.io/part-of: opendatahub
-    includeSelectors: false

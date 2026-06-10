@@ -5,8 +5,3 @@ namespace: redhat-ods-applications
 
 resources:
   - ../../base
-
-labels:
-  - pairs:
-      app.kubernetes.io/part-of: rhods
-    includeSelectors: false

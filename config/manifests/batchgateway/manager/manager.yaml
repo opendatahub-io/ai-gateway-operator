@@ -1,22 +1,22 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: batch-gateway-operator
+  name: llm-d-batch-gateway-operator
   namespace: system
   labels:
-    control-plane: controller-manager
-    app.kubernetes.io/name: batch-gateway-operator
+    control-plane: llm-d-batch-gateway-controller-manager
+    app.kubernetes.io/name: llm-d-batch-gateway-operator
     app.kubernetes.io/managed-by: kustomize
 spec:
   replicas: 1
   selector:
     matchLabels:
-      control-plane: controller-manager
+      control-plane: llm-d-batch-gateway-controller-manager
   template:
     metadata:
       labels:
-        control-plane: controller-manager
-        app.kubernetes.io/name: batch-gateway-operator
+        control-plane: llm-d-batch-gateway-controller-manager
+        app.kubernetes.io/name: llm-d-batch-gateway-operator
     spec:
       containers:
       - name: manager
@@ -69,7 +69,7 @@ spec:
             drop:
             - ALL
           readOnlyRootFilesystem: true
-      serviceAccountName: batch-gateway-operator
+      serviceAccountName: llm-d-batch-gateway-operator
       securityContext:
         runAsNonRoot: true
         seccompProfile:
