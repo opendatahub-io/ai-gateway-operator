@@ -107,6 +107,8 @@ spec:
         - name: manifests
           mountPath: /opt/manifests
         env:
+        - name: GOMEMLIMIT
+          value: 410MiB
         - name: ODH_MODULE_OPERATOR_CONFIGURATION_PATH
           value: /etc/controller/config
         - name: ODH_MODULE_OPERATOR_MANIFESTS_PATH
