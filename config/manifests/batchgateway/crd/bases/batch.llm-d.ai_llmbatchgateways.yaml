@@ -284,6 +284,7 @@ spec:
                         description: Endpoint overrides the S3 endpoint URL for non-AWS
                           providers (e.g. MinIO).
                         maxLength: 2048
+                        pattern: ^https?://.+$
                         type: string
                       prefix:
                         description: Prefix is an optional key prefix applied to all
@@ -401,6 +402,7 @@ spec:
                     description: Endpoint is the OTLP gRPC or HTTP endpoint (e.g.
                       "http://collector:4317").
                     maxLength: 2048
+                    pattern: ^https?://.+$
                     type: string
                   insecure:
                     description: Insecure disables TLS for the OTLP connection.
@@ -527,10 +529,15 @@ spec:
                         description: URL is the base URL of the inference gateway
                           (e.g. "http://gateway.svc:8000").
                         maxLength: 2048
+                        pattern: ^https?://.+$
                         type: string
                     required:
                     - url
                     type: object
+                    x-kubernetes-validations:
+                    - message: tlsInsecureSkipVerify is not allowed; configure trusted
+                        CA certificates instead
+                      rule: '!has(self.tlsInsecureSkipVerify) || !self.tlsInsecureSkipVerify'
                   modelGateways:
                     additionalProperties:
                       description: InferenceGatewaySpec configures a connection to
@@ -582,10 +589,15 @@ spec:
                           description: URL is the base URL of the inference gateway
                             (e.g. "http://gateway.svc:8000").
                           maxLength: 2048
+                          pattern: ^https?://.+$
                           type: string
                       required:
                       - url
                       type: object
+                      x-kubernetes-validations:
+                      - message: tlsInsecureSkipVerify is not allowed; configure trusted
+                          CA certificates instead
+                        rule: '!has(self.tlsInsecureSkipVerify) || !self.tlsInsecureSkipVerify'
                     description: |-
                       ModelGateways maps model names to per-model inference gateway configurations,
                       overriding GlobalInferenceGateway for those models.
