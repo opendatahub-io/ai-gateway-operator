@@ -15,8 +15,10 @@ spec:
       autoCreateBucket: true
   apiServer:
     replicas: 1
+    imagePullPolicy: IfNotPresent
   processor:
     replicas: 1
+    imagePullPolicy: IfNotPresent
     globalInferenceGateway:
       url: http://vllm-sim.default.svc.cluster.local:8000
       requestTimeout: 5m
@@ -25,3 +27,4 @@ spec:
       maxBackoff: 60s
   gc:
     interval: 30m
+    imagePullPolicy: IfNotPresent
