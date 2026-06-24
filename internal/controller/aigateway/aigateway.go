@@ -46,11 +46,16 @@ var batchGatewayImageParamMap = map[string]string{
 	"LLM_D_BATCH_GATEWAY_GC_IMAGE":        "RELATED_IMAGE_ODH_LLM_D_BATCH_GATEWAY_GC_IMAGE",
 }
 
+var ippImageParamMap = map[string]string{
+	"payload-processing": "RELATED_IMAGE_ODH_AI_GATEWAY_PAYLOAD_PROCESSING_IMAGE",
+}
+
 // Module holds process-lifetime state for the aigateway controller.
 type Module struct {
 	cfg                      *moduleconfig.Config
 	version                  componentApi.SemVer
 	batchGatewayManifestInfo odhtypes.ManifestInfo
+	ippManifestInfo          odhtypes.ManifestInfo
 }
 
 // NewModule creates a Module with one-shot computed state.
@@ -70,10 +75,21 @@ func NewModule(cfg *moduleconfig.Config) (*Module, error) {
 		return nil, fmt.Errorf("failed to update images on path %s: %w", batchMI, err)
 	}
 
+	ippMI := odhtypes.ManifestInfo{
+		Path:       cfg.ManifestsPath,
+		ContextDir: "ipp",
+		SourcePath: "base",
+	}
+
+	if err := odhdeploy.ApplyParams(ippMI.String(), "params.env", ippImageParamMap, nil); err != nil {
+		return nil, fmt.Errorf("failed to update images on path %s: %w", ippMI, err)
+	}
+
 	return &Module{
 		cfg:                      cfg,
 		version:                  v,
 		batchGatewayManifestInfo: batchMI,
+		ippManifestInfo:          ippMI,
 	}, nil
 }
 
@@ -97,6 +113,10 @@ func (m *Module) initialize(_ context.Context, rr *odhtypes.ReconciliationReques
 		}
 	}
 
+	if obj.Spec.InferencePayloadProcessing.ManagementState == managedState {
+		rr.Manifests = append(rr.Manifests, m.ippManifestInfo)
+	}
+
 	// TODO: add for maas
 
 	return nil
@@ -104,7 +124,8 @@ func (m *Module) initialize(_ context.Context, rr *odhtypes.ReconciliationReques
 
 // anySubModuleManaged reports whether at least one AIGateway sub-module is set to Managed.
 func anySubModuleManaged(obj *componentApi.AIGateway) bool {
-	return obj.Spec.BatchGateway.ManagementState == managedState
+	return obj.Spec.BatchGateway.ManagementState == managedState ||
+		obj.Spec.InferencePayloadProcessing.ManagementState == managedState
 	// TODO: add maas once it lands, e.g.:
 	//   || obj.Spec.MaaS.ManagementState == managedState
 }
