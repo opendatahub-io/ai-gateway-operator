@@ -68,10 +68,11 @@ import (
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=referencegrants,verbs=get;list;watch
 // +kubebuilder:rbac:groups=monitoring.coreos.com,resources=podmonitors;prometheusrules;servicemonitors,verbs=get;list;watch;create;update;patch;delete
 
-// MaaS controller deployment - needs permissions to create/patch CRDs and ClusterRoles
+// MaaS controller deployment - needs permissions to create/patch CRDs, ClusterRoles, and ValidatingWebhookConfigurations
 // +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=get;update;patch
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,verbs=get;update;patch
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterrolebindings,verbs=get;update;patch
+// +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=validatingwebhookconfigurations,verbs=get;list;watch;create;update;patch;delete
 
 // MaaS controller RBAC escalation - permissions needed to create ClusterRoles that grant these permissions
 // +kubebuilder:rbac:groups=maas.opendatahub.io,resources=*,verbs=*
