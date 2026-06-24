@@ -38,7 +38,7 @@ replacements:
           kind: Deployment
           name: maas-controller
         fieldPaths:
-          - spec.template.spec.containers.[name=manager].env.[name=RELATED_IMAGE_MAAS_API].value
+          - spec.template.spec.containers.[name=manager].env.[name=RELATED_IMAGE_ODH_MAAS_API_IMAGE].value
   - source:
       kind: ConfigMap
       name: maas-controller-params
@@ -48,7 +48,7 @@ replacements:
           kind: Deployment
           name: maas-controller
         fieldPaths:
-          - spec.template.spec.containers.[name=manager].env.[name=RELATED_IMAGE_PAYLOAD_PROCESSING].value
+          - spec.template.spec.containers.[name=manager].env.[name=RELATED_IMAGE_ODH_AI_GATEWAY_PAYLOAD_PROCESSING_IMAGE].value
   - source:
       kind: ConfigMap
       name: maas-controller-params
@@ -58,4 +58,4 @@ replacements:
           kind: Deployment
           name: maas-controller
         fieldPaths:
-          - spec.template.spec.containers.[name=manager].env.[name=RELATED_IMAGE_MAAS_API_KEY_CLEANUP].value
+          - spec.template.spec.containers.[name=manager].env.[name=RELATED_IMAGE_UBI_MINIMAL_IMAGE].value
