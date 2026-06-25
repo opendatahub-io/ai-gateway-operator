@@ -74,14 +74,15 @@ import (
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterrolebindings,verbs=get;update;patch
 // +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=validatingwebhookconfigurations,verbs=get;list;watch;create;update;patch;delete
 
-// MaaS controller RBAC escalation - permissions needed to create ClusterRoles that grant these permissions
-// +kubebuilder:rbac:groups=maas.opendatahub.io,resources=*,verbs=*
+// MaaS controller RBAC escalation - explicit resources instead of wildcard
+// +kubebuilder:rbac:groups=maas.opendatahub.io,resources=tenants;aitenants;maasmodelrefs;maasauthpolicies;maassubscriptions;configs;externalmodels,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=maas.opendatahub.io,resources=tenants/status;aitenants/status;maasmodelrefs/status;maasauthpolicies/status;maassubscriptions/status;configs/status;externalmodels/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=maas.opendatahub.io,resources=tenants/finalizers;aitenants/finalizers;maasmodelrefs/finalizers;maasauthpolicies/finalizers;maassubscriptions/finalizers;configs/finalizers;externalmodels/finalizers,verbs=update
 // +kubebuilder:rbac:groups=inference.opendatahub.io,resources=externalmodels;externalproviders,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=inference.opendatahub.io,resources=externalmodels/finalizers;externalproviders/finalizers,verbs=update
 // +kubebuilder:rbac:groups=inference.opendatahub.io,resources=externalmodels/status;externalproviders/status,verbs=get;patch;update
 // +kubebuilder:rbac:groups="",resources=namespaces;endpoints;pods,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=create;patch;update
-// +kubebuilder:rbac:groups="",resources=serviceaccounts/token,verbs=create
 // +kubebuilder:rbac:groups=apps,resources=deployments/finalizers,verbs=update
 // +kubebuilder:rbac:groups=batch,resources=cronjobs,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=config.openshift.io,resources=authentications,verbs=get;list;watch

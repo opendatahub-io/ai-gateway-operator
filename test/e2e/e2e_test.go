@@ -411,6 +411,8 @@ func testMaaSCRDsCreated(t *testing.T) {
 		"maasmodelrefs.maas.opendatahub.io",
 		"maassubscriptions.maas.opendatahub.io",
 		"tenants.maas.opendatahub.io",
+		"externalmodels.inference.opendatahub.io",
+		"externalproviders.inference.opendatahub.io",
 	}
 
 	for _, crdName := range expectedCRDs {
@@ -438,9 +440,11 @@ func testMaaSConfigMapCreated(t *testing.T, namespace string) {
 		for i := range cmList.Items {
 			cm := &cmList.Items[i]
 			if len(cm.Name) >= 15 && cm.Name[:15] == "maas-parameters" {
-				// Verify it has the expected keys
+				// Verify it has the expected keys and non-empty values
 				g.Expect(cm.Data).To(HaveKey("MAAS_CONTROLLER_IMAGE"))
+				g.Expect(cm.Data["MAAS_CONTROLLER_IMAGE"]).NotTo(BeEmpty(), "MAAS_CONTROLLER_IMAGE must not be empty")
 				g.Expect(cm.Data).To(HaveKey("MAAS_API_IMAGE"))
+				g.Expect(cm.Data["MAAS_API_IMAGE"]).NotTo(BeEmpty(), "MAAS_API_IMAGE must not be empty")
 				found = true
 				break
 			}
@@ -496,8 +500,11 @@ func testMaaSOwnerReferences(t *testing.T, module *componentsv1alpha1.AIGateway,
 	g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(module), module)).To(Succeed())
 
 	g.Eventually(k.Get(deploy)).WithContext(ctx).WithTimeout(timeout).WithPolling(interval).Should(
-		jq.Match(`.metadata.ownerReferences[] | select(.kind == "AIGateway") | .name == "%s"`, module.Name),
+		And(
+			jq.Match(`.metadata.ownerReferences[] | select(.kind == "AIGateway") | .name == "%s"`, module.Name),
+			jq.Match(`.metadata.ownerReferences[] | select(.kind == "AIGateway") | .uid == "%s"`, module.UID),
+		),
 	)
 
-	t.Log("maas-controller deployment has correct owner reference")
+	t.Log("maas-controller deployment has correct owner reference with matching UID")
 }

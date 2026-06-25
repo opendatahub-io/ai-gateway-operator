@@ -50,12 +50,6 @@ rules:
   - watch
 - apiGroups:
   - ""
-  resources:
-  - serviceaccounts/token
-  verbs:
-  - create
-- apiGroups:
-  - ""
   - events.k8s.io
   resources:
   - events
@@ -283,9 +277,47 @@ rules:
 - apiGroups:
   - maas.opendatahub.io
   resources:
-  - '*'
+  - aitenants
+  - configs
+  - externalmodels
+  - maasauthpolicies
+  - maasmodelrefs
+  - maassubscriptions
+  - tenants
   verbs:
-  - '*'
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - maas.opendatahub.io
+  resources:
+  - aitenants/finalizers
+  - configs/finalizers
+  - externalmodels/finalizers
+  - maasauthpolicies/finalizers
+  - maasmodelrefs/finalizers
+  - maassubscriptions/finalizers
+  - tenants/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - maas.opendatahub.io
+  resources:
+  - aitenants/status
+  - configs/status
+  - externalmodels/status
+  - maasauthpolicies/status
+  - maasmodelrefs/status
+  - maassubscriptions/status
+  - tenants/status
+  verbs:
+  - get
+  - patch
+  - update
 - apiGroups:
   - monitoring.coreos.com
   resources:
