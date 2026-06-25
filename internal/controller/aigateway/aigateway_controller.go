@@ -18,6 +18,7 @@ package aigateway
 
 import (
 	"context"
+	"path/filepath"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -36,6 +37,7 @@ import (
 	"github.com/opendatahub-io/opendatahub-operator/v2/pkg/controller/actions/status/releases"
 	"github.com/opendatahub-io/opendatahub-operator/v2/pkg/controller/predicates"
 	"github.com/opendatahub-io/opendatahub-operator/v2/pkg/controller/reconciler"
+	odhtypes "github.com/opendatahub-io/opendatahub-operator/v2/pkg/controller/types"
 	"github.com/opendatahub-io/opendatahub-operator/v2/pkg/metadata/labels"
 )
 
@@ -89,7 +91,11 @@ func NewReconciler(
 		Owns(&appsv1.Deployment{}, reconciler.WithPredicates(predicates.DefaultDeploymentPredicate)).
 		WithAction(m.initialize).
 		WithAction(m.upgradeIfNeeded).
-		WithAction(releases.NewAction()).
+		WithAction(releases.NewAction(
+			releases.WithMetadataFilePath(func(rr *odhtypes.ReconciliationRequest) string {
+				return filepath.Join(rr.ManifestsBasePath, "ai-gateway-operator", releases.ComponentMetadataFilename)
+			}),
+		)).
 		WithAction(kustomize.NewAction(
 			kustomize.WithLabel(labels.ODH.Component(componentName), labels.True),
 			kustomize.WithLabel(labels.K8SCommon.PartOf, componentName),
