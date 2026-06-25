@@ -61,7 +61,8 @@ const (
 	timeout  = 90 * time.Second
 	interval = 2 * time.Second
 
-	moduleCRDName = "aigateways.components.platform.opendatahub.io"
+	moduleCRDName              = "aigateways.components.platform.opendatahub.io"
+	batchGatewayOperatorName   = "llm-d-batch-gateway-operator"
 )
 
 var (
@@ -230,7 +231,7 @@ func TestAIGateway(t *testing.T) {
 		},
 		workloadDeploy: &appsv1.Deployment{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      "llm-d-batch-gateway-operator",
+				Name:      batchGatewayOperatorName,
 				Namespace: support.IntegrationTestNamespace(),
 			},
 		},
@@ -240,15 +241,24 @@ func TestAIGateway(t *testing.T) {
 	waitForSingletonDeleted(t, rt.module)
 
 	t.Cleanup(func() {
-		_ = k8sClient.Delete(ctx, rt.module)
+		// testCRDeletionCleanup may have already removed the CR.
+		err := k8sClient.Delete(ctx, rt.module)
+		if err != nil && !k8serr.IsNotFound(err) {
+			t.Logf("cleanup: unexpected error deleting AIGateway: %v", err)
+		}
 	})
 
 	t.Run("should have module CRD installed", rt.testModuleCRDInstalled)
+	t.Run("should reject non-singleton CR name", rt.testSingletonCELRejection)
 	t.Run("should become ready", rt.testBecomesReady)
+	t.Run("should set observedGeneration after reconciliation", rt.testObservedGeneration)
+	t.Run("should populate status.releases", rt.testReleasesPopulated)
 	t.Run("should deploy batch-gateway operator", rt.testBatchGatewayDeployed)
 	t.Run("should show deployed resources", rt.testShowResources)
 	t.Run("should report module version and platform", rt.testModuleStatus)
 	t.Run("should set owner references on workload", rt.testOwnerReferences)
+	t.Run("should set Ready=False when operand unavailable", rt.testReadyFalseOnOperandFailure)
+	t.Run("should garbage-collect owned resources on CR deletion", rt.testCRDeletionCleanup)
 }
 
 func (rt *aiGatewayTest) testModuleCRDInstalled(t *testing.T) {
@@ -340,6 +350,102 @@ func (rt *aiGatewayTest) testOwnerReferences(t *testing.T) {
 		jq.Match(`.metadata.ownerReferences[] | select(.kind == "AIGateway") | .name == "%s"`,
 			componentsv1alpha1.AIGatewayInstanceName),
 	)
+}
+
+func (rt *aiGatewayTest) testSingletonCELRejection(t *testing.T) {
+	g := NewWithT(t)
+
+	badModule := &componentsv1alpha1.AIGateway{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "not-the-default",
+		},
+		Spec: componentsv1alpha1.AIGatewaySpec{
+			BatchGateway: componentsv1alpha1.BatchGatewayComponent{
+				ManagementState: "Managed",
+			},
+		},
+	}
+
+	err := k8sClient.Create(ctx, badModule)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(k8serr.IsInvalid(err)).To(BeTrue(), "expected Invalid error, got: %v", err)
+	g.Expect(err.Error()).To(ContainSubstring("AIGateway name must be default-aigateway"))
+}
+
+func (rt *aiGatewayTest) testObservedGeneration(t *testing.T) {
+	g := NewWithT(t)
+
+	g.Eventually(k.Get(rt.module)).WithContext(ctx).WithTimeout(timeout).WithPolling(interval).Should(And(
+		jq.Match(`.status.observedGeneration > 0`),
+		jq.Match(`.status.observedGeneration == .metadata.generation`),
+	))
+}
+
+func (rt *aiGatewayTest) testReleasesPopulated(t *testing.T) {
+	g := NewWithT(t)
+
+	g.Eventually(k.Get(rt.module)).WithContext(ctx).WithTimeout(timeout).WithPolling(interval).Should(And(
+		jq.Match(`.status.releases | length > 0`),
+		jq.Match(`.status.releases[0].name == "LLM-D AI Gateway Operator"`),
+		jq.Match(`.status.releases[0].version != ""`),
+	))
+}
+
+func (rt *aiGatewayTest) testReadyFalseOnOperandFailure(t *testing.T) {
+	g := NewWithT(t)
+
+	// Precondition: CR is Ready and Deployment is available.
+	g.Eventually(k.Get(rt.workloadDeploy)).WithContext(ctx).WithTimeout(timeout).WithPolling(interval).Should(
+		jq.Match(`.status.readyReplicas >= 1`),
+	)
+
+	// Delete the batch-gateway Deployment to trigger a failure path.
+	g.Expect(k8sClient.Delete(ctx, rt.workloadDeploy)).To(Succeed())
+
+	// Reset the object reference so subsequent Gets work with the re-created Deployment.
+	rt.workloadDeploy = &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      batchGatewayOperatorName,
+			Namespace: support.IntegrationTestNamespace(),
+		},
+	}
+
+	// The controller re-creates the Deployment in the same reconcile pass, but
+	// deployments.NewAction sees readyReplicas == 0 and sets Ready=False.
+	g.Eventually(k.Get(rt.module)).WithContext(ctx).WithTimeout(timeout).WithPolling(interval).Should(And(
+		jq.Match(`.status.phase == "NotReady"`),
+		jq.Match(`.status.conditions[] | select(.type == "Ready") | .status == "False"`),
+	))
+
+	// Wait for recovery so subsequent tests start from a clean state.
+	g.Eventually(k.Get(rt.module)).WithContext(ctx).WithTimeout(timeout).WithPolling(interval).Should(And(
+		jq.Match(`.status.phase == "Ready"`),
+		jq.Match(`.status.conditions[] | select(.type == "Ready") | .status == "True"`),
+	))
+}
+
+func (rt *aiGatewayTest) testCRDeletionCleanup(t *testing.T) {
+	g := NewWithT(t)
+	ns := support.IntegrationTestNamespace()
+
+	// Verify representative owned resources exist before deletion.
+	deploy := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: batchGatewayOperatorName, Namespace: ns}}
+	g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(deploy), deploy)).To(Succeed())
+
+	sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: batchGatewayOperatorName, Namespace: ns}}
+	g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sa), sa)).To(Succeed())
+
+	crb := &rbacv1.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: batchGatewayOperatorName}}
+	g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(crb), crb)).To(Succeed())
+
+	// Delete the AIGateway CR.
+	g.Expect(k8sClient.Delete(ctx, rt.module)).To(Succeed())
+	waitForSingletonDeleted(t, rt.module)
+
+	// Verify owned resources are garbage-collected.
+	waitForDeleted(t, deploy)
+	waitForDeleted(t, sa)
+	waitForDeleted(t, crb)
 }
 
 func waitForDeleted(t *testing.T, obj client.Object) {
