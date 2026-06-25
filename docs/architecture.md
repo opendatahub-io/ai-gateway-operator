@@ -26,13 +26,14 @@ AIGateway CR
        ┌───────┴────────────────────┐
        ▼                            ▼
 ┌───────────────────────────┐  ┌───────────────────────────┐
-│  batch-gateway-operator   │  │  maas                     │
+│  batch-gateway-operator   │  │  maas-controller          │
 │  (sub-component)          │  │  (sub-component)          │
 │                           │  │                           │
-│  Watches LLMBatchGateway  │  │  Watches MaaS CRs         │
-│  CR, manages actual       │  │  manages Models-as-a-     │
-│  batch inference gateway  │  │  Service workloads        │
-│  workloads                │  │                           │
+│  Watches LLMBatchGateway  │  │  Watches Tenant,          │
+│  CR, manages batch        │  │  MaaSSubscription,        │
+│  inference gateway        │  │  MaaSModelRef CRs,        │
+│  workloads                │  │  manages multi-tenant     │
+│                           │  │  model inference          │
 └───────────────────────────┘  └───────────────────────────┘
 ```
 
