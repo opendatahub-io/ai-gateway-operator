@@ -64,6 +64,21 @@ spec:
                     - Removed
                     type: string
                 type: object
+              inferencePayloadProcessing:
+                description: |-
+                  InferencePayloadProcessing controls the IPP (payload-processing) sub-component.
+                  IPP runs as ext_proc filters in the gateway, handling model routing,
+                  API translation, and API key injection for inference requests.
+                properties:
+                  managementState:
+                    default: Managed
+                    description: ManagementState controls whether IPP (payload-processing)
+                      is deployed.
+                    enum:
+                    - Managed
+                    - Removed
+                    type: string
+                type: object
             type: object
           status:
             description: AIGatewayStatus defines the observed state of AIGateway.

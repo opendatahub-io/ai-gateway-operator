@@ -153,11 +153,53 @@ rules:
   - list
   - watch
 - apiGroups:
+  - inference.opendatahub.io
+  resources:
+  - externalmodels
+  - externalproviders
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - inference.opendatahub.io
+  resources:
+  - externalmodels/finalizers
+  - externalproviders/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - inference.opendatahub.io
+  resources:
+  - externalmodels/status
+  - externalproviders/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
   - monitoring.coreos.com
   resources:
   - podmonitors
   - prometheusrules
   - servicemonitors
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - networking.istio.io
+  resources:
+  - destinationrules
+  - envoyfilters
   verbs:
   - create
   - delete

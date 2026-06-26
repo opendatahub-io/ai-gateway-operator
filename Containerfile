@@ -27,6 +27,7 @@ COPY internal/ internal/
 COPY pkg/ pkg/
 # only the sub-modules need to be copied here TODO: maas
 COPY config/manifests/batchgateway/ config/manifests/batchgateway/
+COPY config/manifests/ipp/ config/manifests/ipp/
 
 # Generated code and manifests come from the host (make container-prep).
 # Only compile the manager binary inside the image.
