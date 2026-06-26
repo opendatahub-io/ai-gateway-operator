@@ -3,6 +3,10 @@ FROM registry.access.redhat.com/ubi10/go-toolset:1.26 AS builder
 ARG TARGETOS
 ARG TARGETARCH
 ARG LDFLAGS=""
+ARG GIT_COMMIT=""
+ARG GIT_BRANCH=""
+ARG GIT_REPO=""
+ARG VERSION=""
 
 USER 0
 WORKDIR /workspace
@@ -26,7 +30,11 @@ COPY config/manifests/batchgateway/ config/manifests/batchgateway/
 
 # Generated code and manifests come from the host (make container-prep).
 # Only compile the manager binary inside the image.
-RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-$(go env GOARCH)} \
+RUN VERSION_PKG="github.com/opendatahub-io/ai-gateway-operator/pkg/version" && \
+    if [ -z "${LDFLAGS}" ] && [ -n "${GIT_COMMIT}" ]; then \
+      LDFLAGS="-X ${VERSION_PKG}.Version=${VERSION} -X ${VERSION_PKG}.Commit=${GIT_COMMIT} -X ${VERSION_PKG}.Branch=${GIT_BRANCH} -X ${VERSION_PKG}.Repo=${GIT_REPO}"; \
+    fi && \
+    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-$(go env GOARCH)} \
     make build-bin BIN_DIR=/workspace/bin BIN_NAME=manager LDFLAGS="${LDFLAGS}"
 
 # Make manifests readable by any user (OpenShift assigns arbitrary UIDs)
