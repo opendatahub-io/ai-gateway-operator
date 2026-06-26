@@ -28,6 +28,12 @@ spec:
     value: Containerfile.konflux
   - name: path-context
     value: ./
+  - name: build-args
+    value:
+    - GIT_COMMIT={{revision}}
+    - GIT_BRANCH={{target_branch}}
+    - GIT_REPO={{source_url}}
+    - VERSION={{revision}}
   # additional params
   - name: additional-tags
     value:

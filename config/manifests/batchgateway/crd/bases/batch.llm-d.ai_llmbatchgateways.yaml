@@ -831,9 +831,10 @@ spec:
                 x-kubernetes-validations:
                 - message: tls.secretName or tls.certManager must be set when tls.enabled
                     is true
-                  rule: '!self.enabled || size(self.secretName) > 0 || has(self.certManager)'
+                  rule: '!self.enabled || (has(self.secretName) && size(self.secretName)
+                    > 0) || has(self.certManager)'
                 - message: tls.secretName and tls.certManager are mutually exclusive
-                  rule: '!(size(self.secretName) > 0 && has(self.certManager))'
+                  rule: '!(has(self.secretName) && size(self.secretName) > 0 && has(self.certManager))'
             required:
             - apiServer
             - gc
