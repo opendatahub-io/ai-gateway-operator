@@ -409,8 +409,8 @@ rules:
   - rbac.authorization.k8s.io
   resourceNames:
   - llm-d-batch-gateway-operator
-  - llm-d-batch-gateway-admin
-  - llm-d-batch-gateway-view
+  - llmbatchgateway-admin
+  - llmbatchgateway-view
   resources:
   - clusterroles
   verbs:
