@@ -65,13 +65,14 @@ fetch_component() {
 #
 # ODH commits:   https://github.com/opendatahub-io/<repo_name>/commits/
 # RHDS commits: https://github.com/red-hat-data-services/<repo_name>/commits/
-declare -A COMPONENTS=(
-    [batchgateway]="llm-d-batch-gateway-operator|config|96266f4b7d9d8b4fbe56225a2b37e064717cd3e1|3ffb67bc46bc00e2183df4f568c92d621cdc1743"
-    # MaaS: integrated-maas-modularization feature branch (includes PR #1052 + #1025 + #1037 + #1003)
-    [maascontroller]="models-as-a-service|deployment/base/maas-controller|a812aed6|a812aed6"
+
+# Array of components to fetch
+COMPONENTS=(
+    "batchgateway|llm-d-batch-gateway-operator|config|96266f4b7d9d8b4fbe56225a2b37e064717cd3e1|3ffb67bc46bc00e2183df4f568c92d621cdc1743"
+    "maascontroller|models-as-a-service|deployment/base/maas-controller|680725c7|680725c7"
 )
 
-for component_name in "${!COMPONENTS[@]}"; do
-    IFS='|' read -r repo_name src_path odh_commit rhds_commit <<< "${COMPONENTS[$component_name]}"
+for component_spec in "${COMPONENTS[@]}"; do
+    IFS='|' read -r component_name repo_name src_path odh_commit rhds_commit <<< "$component_spec"
     fetch_component "$component_name" "$repo_name" "$src_path" "$odh_commit" "$rhds_commit"
 done
