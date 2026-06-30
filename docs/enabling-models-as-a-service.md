@@ -40,7 +40,7 @@ Check status:
 kubectl get aigateway default-aigateway
 
 # Verify maas-controller deployment
-kubectl get deployment -n ai-gateway-system maas-controller
+kubectl get deployment -n opendatahub maas-controller
 
 # Verify MaaS CRDs (should list 7)
 kubectl get crd | grep maas
