@@ -71,7 +71,7 @@ import (
 // MaaS controller deployment - permissions to deploy vendored maascontroller manifests
 // (fetched by make get-manifests; do not edit config/manifests/maascontroller/ RBAC here).
 // +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=create;list;watch
-// +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,resourceNames=tenants.maas.opendatahub.io;aitenants.maas.opendatahub.io;configs.maas.opendatahub.io;maasmodelrefs.maas.opendatahub.io;maasauthpolicies.maas.opendatahub.io;maassubscriptions.maas.opendatahub.io;externalmodels.maas.opendatahub.io;externalmodels.inference.opendatahub.io;externalproviders.inference.opendatahub.io,verbs=get;update;patch;delete
+// +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,resourceNames=tenants.maas.opendatahub.io;aitenants.maas.opendatahub.io;configs.maas.opendatahub.io;maasmodelrefs.maas.opendatahub.io;maasauthpolicies.maas.opendatahub.io;maassubscriptions.maas.opendatahub.io;externalmodels.maas.opendatahub.io;externalmodels.inference.opendatahub.io;externalproviders.inference.opendatahub.io;modelsasservices.components.platform.opendatahub.io,verbs=get;update;patch;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterrolebindings,verbs=create;list;watch
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterrolebindings,resourceNames=maas-controller-cluster-config-rolebinding;maas-controller-rolebinding,verbs=get;update;patch;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,verbs=create;list;watch

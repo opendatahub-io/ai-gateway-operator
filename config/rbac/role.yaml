@@ -95,6 +95,7 @@ rules:
   - maasauthpolicies.maas.opendatahub.io
   - maasmodelrefs.maas.opendatahub.io
   - maassubscriptions.maas.opendatahub.io
+  - modelsasservices.components.platform.opendatahub.io
   - tenants.maas.opendatahub.io
   resources:
   - customresourcedefinitions
