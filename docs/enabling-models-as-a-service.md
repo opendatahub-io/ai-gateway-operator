@@ -4,7 +4,7 @@
 
 Models as a Service (MaaS) provides multi-tenant AI/ML model management with API key authentication, model subscriptions, and gateway routing.
 
-**Deployment scope:** ai-gateway-operator deploys the **MaaS controller layer only** — CRDs, RBAC, the `maas-controller` Deployment, and its validating webhook (`config/manifests/maascontroller/base/`). It does **not** deploy maas-api, billing, observability dashboards, or gateway policies from `config/manifests/maas/`; those remain the platform operator's responsibility.
+**Deployment scope:** ai-gateway-operator deploys the **MaaS controller layer only** via `config/manifests/maascontroller/default/` (CRDs, RBAC, the `maas-controller` Deployment, webhook, and monitoring). It does **not** deploy maas-api, billing, observability dashboards, or gateway policies from `config/manifests/maas/`; those remain the platform operator's responsibility.
 
 ## Prerequisites
 
