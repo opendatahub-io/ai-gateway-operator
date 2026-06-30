@@ -22,16 +22,13 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strings"
 	"testing"
 	"time"
 
 	. "github.com/onsi/gomega"
 
 	appsv1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -43,8 +40,6 @@ import (
 	k8sm "github.com/lburgazzoli/gomega-matchers/pkg/matchers/k8s"
 
 	componentsv1alpha1 "github.com/opendatahub-io/ai-gateway-operator/api/components/v1alpha1"
-	moduleconfig "github.com/opendatahub-io/ai-gateway-operator/pkg/config"
-	"github.com/opendatahub-io/ai-gateway-operator/pkg/version"
 	"github.com/opendatahub-io/ai-gateway-operator/test/support"
 )
 
@@ -56,10 +51,8 @@ const (
 	annotationInstanceName = "platform.opendatahub.io/instance.name"
 	annotationInstanceUID  = "platform.opendatahub.io/instance.uid"
 	annotationType         = "platform.opendatahub.io/type"
-	annotationVersion      = "platform.opendatahub.io/version"
 
 	operatorConfigMapName = "ai-gateway-config"
-	moduleCRDName         = "aigateways.components.platform.opendatahub.io"
 )
 
 var (
@@ -69,12 +62,23 @@ var (
 	k         *k8sm.Matcher
 
 	testScheme = runtime.NewScheme()
+
+	module            *componentsv1alpha1.AIGateway
+	operatorNamespace string
+
+	moduleSpecFns []func(*componentsv1alpha1.AIGatewaySpec)
 )
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(testScheme))
 	utilruntime.Must(apiextensionsv1.AddToScheme(testScheme))
 	utilruntime.Must(componentsv1alpha1.AddToScheme(testScheme))
+}
+
+// registerModuleSpec lets each component test file contribute its spec
+// fields via init(), so adding a new component never touches existing files.
+func registerModuleSpec(fn func(*componentsv1alpha1.AIGatewaySpec)) {
+	moduleSpecFns = append(moduleSpecFns, fn)
 }
 
 func TestMain(m *testing.M) {
@@ -84,6 +88,8 @@ func TestMain(m *testing.M) {
 func runTestMain(m *testing.M) int {
 	ctx, cancel = context.WithCancel(context.Background())
 	defer cancel()
+
+	operatorNamespace = support.OperatorNamespace()
 
 	cfg, err := config.GetConfig()
 	if err != nil {
@@ -99,220 +105,80 @@ func runTestMain(m *testing.M) int {
 
 	k = k8sm.New(k8sClient, testScheme)
 
-	return m.Run()
-}
-
-type aiGatewayE2ETest struct {
-	module         *componentsv1alpha1.AIGateway
-	moduleCRD      *apiextensionsv1.CustomResourceDefinition
-	operatorDeploy *appsv1.Deployment
-	operatorCfgMap *corev1.ConfigMap
-	workloadDeploy *appsv1.Deployment
-}
-
-func TestAIGateway(t *testing.T) {
-	operatorNamespace := support.OperatorNamespace()
-
-	rt := &aiGatewayE2ETest{
-		module: &componentsv1alpha1.AIGateway{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: componentsv1alpha1.AIGatewayInstanceName,
-			},
-			Spec: componentsv1alpha1.AIGatewaySpec{
-				BatchGateway: componentsv1alpha1.BatchGatewayComponent{
-					ManagementState: "Managed",
-				},
-			},
-		},
-		moduleCRD: &apiextensionsv1.CustomResourceDefinition{
-			ObjectMeta: metav1.ObjectMeta{Name: moduleCRDName},
-		},
-		operatorDeploy: &appsv1.Deployment{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "ai-gateway-operator",
-				Namespace: operatorNamespace,
-			},
-		},
-		operatorCfgMap: &corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      operatorConfigMapName,
-				Namespace: operatorNamespace,
-			},
-		},
-		workloadDeploy: &appsv1.Deployment{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "llm-d-batch-gateway-operator",
-				Namespace: operatorNamespace,
-			},
-		},
+	if err := pollFor(ctx, "operator deployment ready", func() (bool, error) {
+		deploy := &appsv1.Deployment{}
+		if err := k8sClient.Get(ctx, client.ObjectKey{
+			Name: "ai-gateway-operator", Namespace: operatorNamespace,
+		}, deploy); err != nil {
+			return false, nil
+		}
+		return deploy.Status.ReadyReplicas >= 1, nil
+	}); err != nil {
+		return 1
 	}
 
-	_ = k8sClient.Delete(ctx, rt.module)
-	waitForSingletonDeleted(t, rt.module)
-
-	t.Cleanup(func() {
-		_ = k8sClient.Delete(ctx, rt.module)
-	})
-
-	eventuallyDeploymentReady(t, rt.operatorDeploy)
-
-	t.Run("should have module CRD installed", rt.testModuleCRDInstalled)
-	t.Run("should have operator ConfigMap deployed", rt.testOperatorConfigMap)
-	t.Run("should become ready", rt.testBecomesReady)
-	t.Run("should deploy batch-gateway operator", rt.testBatchGatewayDeployed)
-	t.Run("should show deployed resources", rt.testShowResources)
-	t.Run("should report module version and platform", rt.testModuleStatus)
-	t.Run("should set platform labels on workload", rt.testPlatformLabels)
-	t.Run("should set owner references on workload", rt.testOwnerReferences)
-}
-
-func (rt *aiGatewayE2ETest) testModuleCRDInstalled(t *testing.T) {
-	g := NewWithT(t)
-
-	g.Eventually(k.Get(rt.moduleCRD)).WithContext(ctx).WithTimeout(timeout).WithPolling(interval).Should(
-		jq.Match(`.metadata.name == "%s"`, moduleCRDName),
-	)
-}
-
-func (rt *aiGatewayE2ETest) testOperatorConfigMap(t *testing.T) {
-	g := NewWithT(t)
-
-	g.Eventually(k.Get(rt.operatorCfgMap)).WithContext(ctx).WithTimeout(timeout).WithPolling(interval).Should(And(
-		jq.Match(`.data."%s" != ""`, moduleconfig.KeyPlatformType),
-		jq.Match(`.data."%s" != ""`, moduleconfig.KeyPlatformVersion),
-	))
-}
-
-func (rt *aiGatewayE2ETest) testBecomesReady(t *testing.T) {
-	g := NewWithT(t)
-
-	rt.module.ResourceVersion = ""
-	g.Expect(k8sClient.Create(ctx, rt.module)).To(Succeed())
-
-	g.Eventually(k.Get(rt.module)).WithContext(ctx).WithTimeout(timeout).WithPolling(interval).Should(And(
-		jq.Match(`.status.phase == "Ready"`),
-		jq.Match(`.status.conditions[] | select(.type == "Ready") | .status == "True"`),
-		jq.Match(`.status.conditions[] | select(.type == "ProvisioningSucceeded") | .status == "True"`),
-	))
-}
-
-func (rt *aiGatewayE2ETest) testModuleStatus(t *testing.T) {
-	g := NewWithT(t)
-	operatorCfg := &corev1.ConfigMap{
+	module = &componentsv1alpha1.AIGateway{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      operatorConfigMapName,
-			Namespace: support.OperatorNamespace(),
+			Name: componentsv1alpha1.AIGatewayInstanceName,
 		},
 	}
-
-	g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(operatorCfg), operatorCfg)).To(Succeed())
-
-	platformType := operatorCfg.Data[moduleconfig.KeyPlatformType]
-
-	g.Eventually(k.Get(rt.module)).WithContext(ctx).WithTimeout(timeout).WithPolling(interval).Should(And(
-		jq.Match(`.status.module.version == "%s"`, version.Version),
-		jq.Match(`.status.module.buildSource == "%s@%s/%s"`,
-			version.Repo, version.Branch, version.Commit),
-		jq.Match(`.status.module.platform.name == "%s"`, platformType),
-		jq.Match(`.status.module.sources | length > 0`),
-		jq.Match(`.status.module.sources[0].path != ""`),
-		jq.Match(`.status.module.sources[0].renderer == "kustomize"`),
-	))
-}
-
-func (rt *aiGatewayE2ETest) testBatchGatewayDeployed(t *testing.T) {
-	eventuallyDeploymentReady(t, rt.workloadDeploy)
-}
-
-func (rt *aiGatewayE2ETest) testShowResources(t *testing.T) {
-	g := NewWithT(t)
-	ns := rt.operatorDeploy.Namespace
-
-	var sb strings.Builder
-
-	var deployList appsv1.DeploymentList
-	g.Expect(k8sClient.List(ctx, &deployList, client.InNamespace(ns))).To(Succeed())
-
-	fmt.Fprintf(&sb, "Deployments in %s:\n", ns)
-	for i := range deployList.Items {
-		d := &deployList.Items[i]
-		fmt.Fprintf(&sb, "  %-50s ready=%d/%d image=%s\n",
-			d.Name,
-			d.Status.ReadyReplicas,
-			*d.Spec.Replicas,
-			d.Spec.Template.Spec.Containers[0].Image,
-		)
+	for _, fn := range moduleSpecFns {
+		fn(&module.Spec)
 	}
 
-	var podList corev1.PodList
-	g.Expect(k8sClient.List(ctx, &podList, client.InNamespace(ns))).To(Succeed())
-
-	fmt.Fprintf(&sb, "Pods in %s:\n", ns)
-	for i := range podList.Items {
-		p := &podList.Items[i]
-		fmt.Fprintf(&sb, "  %-50s %-10s node=%s\n",
-			p.Name,
-			p.Status.Phase,
-			p.Spec.NodeName,
-		)
+	_ = k8sClient.Delete(ctx, module)
+	if err := pollFor(ctx, "module CR deleted", func() (bool, error) {
+		err := k8sClient.Get(ctx, client.ObjectKeyFromObject(module), module.DeepCopy())
+		return err != nil, nil
+	}); err != nil {
+		return 1
 	}
 
-	t.Log("\n" + sb.String())
-}
-
-func (rt *aiGatewayE2ETest) testPlatformLabels(t *testing.T) {
-	g := NewWithT(t)
-	module := rt.module.DeepCopy()
-	operatorCfg := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      operatorConfigMapName,
-			Namespace: support.OperatorNamespace(),
-		},
+	module.ResourceVersion = ""
+	module.UID = ""
+	if err := k8sClient.Create(ctx, module); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create AIGateway module: %v\n", err)
+		return 1
 	}
 
-	g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(module), module)).To(Succeed())
-	g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(operatorCfg), operatorCfg)).To(Succeed())
+	if err := pollFor(ctx, "module CR ready", func() (bool, error) {
+		fresh := module.DeepCopy()
+		if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(module), fresh); err != nil {
+			return false, nil
+		}
+		for _, c := range fresh.Status.Conditions {
+			if c.Type == "Ready" && c.Status == metav1.ConditionTrue {
+				*module = *fresh
+				return true, nil
+			}
+		}
+		return false, nil
+	}); err != nil {
+		return 1
+	}
 
-	g.Eventually(k.Get(rt.workloadDeploy)).WithContext(ctx).WithTimeout(timeout).WithPolling(interval).Should(And(
-		jq.Match(`.metadata.labels."%s" == "aigateway"`, labelPartOf),
-		jq.Match(`.metadata.annotations."%s" == "%s"`,
-			annotationInstanceName,
-			module.GetName()),
-		jq.Match(`.metadata.annotations."%s" == "%s"`,
-			annotationInstanceUID,
-			string(module.GetUID())),
-		jq.Match(`.metadata.annotations."%s" == "%s"`,
-			annotationType,
-			operatorCfg.Data[moduleconfig.KeyPlatformType]),
-	))
+	code := m.Run()
+
+	_ = k8sClient.Delete(ctx, module)
+
+	return code
 }
 
-func (rt *aiGatewayE2ETest) testOwnerReferences(t *testing.T) {
-	g := NewWithT(t)
-
-	g.Eventually(k.Get(rt.workloadDeploy)).WithContext(ctx).WithTimeout(timeout).WithPolling(interval).Should(
-		jq.Match(`.metadata.ownerReferences[] | select(.kind == "AIGateway") | .name == "%s"`,
-			componentsv1alpha1.AIGatewayInstanceName),
-	)
-}
-
-func waitForDeleted(t *testing.T, obj client.Object) {
-	t.Helper()
-
-	g := NewWithT(t)
-	g.Eventually(func(g Gomega) {
-		fresh := obj.DeepCopyObject().(client.Object)
-		err := k8sClient.Get(ctx, client.ObjectKeyFromObject(obj), fresh)
-		g.Expect(k8serr.IsNotFound(err)).To(BeTrue())
-	}).WithContext(ctx).WithTimeout(timeout).WithPolling(interval).Should(Succeed())
-}
-
-func waitForSingletonDeleted(t *testing.T, obj client.Object) {
-	t.Helper()
-
-	waitForDeleted(t, obj)
-	obj.SetResourceVersion("")
-	obj.SetUID("")
+func pollFor(ctx context.Context, desc string, fn func() (bool, error)) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		done, err := fn()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error polling for %s: %v\n", desc, err)
+			return err
+		}
+		if done {
+			return nil
+		}
+		time.Sleep(interval)
+	}
+	fmt.Fprintf(os.Stderr, "Timed out waiting for %s\n", desc)
+	return fmt.Errorf("timed out waiting for %s", desc)
 }
 
 func eventuallyDeploymentReady(t *testing.T, deploy *appsv1.Deployment) {

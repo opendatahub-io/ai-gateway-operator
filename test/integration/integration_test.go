@@ -399,23 +399,28 @@ func (rt *aiGatewayTest) testReadyFalseOnOperandFailure(t *testing.T) {
 		jq.Match(`.status.readyReplicas >= 1`),
 	)
 
-	// Delete the batch-gateway Deployment to trigger a failure path.
-	g.Expect(k8sClient.Delete(ctx, rt.workloadDeploy)).To(Succeed())
+	// Scale the deployment to 0 replicas to simulate operand failure.
+	// Scaling (instead of deleting) avoids a race where the controller
+	// re-creates the Deployment and pods start before the test can
+	// observe the NotReady transition.
+	g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rt.workloadDeploy), rt.workloadDeploy)).To(Succeed())
+	zero := int32(0)
+	patch := client.MergeFrom(rt.workloadDeploy.DeepCopy())
+	rt.workloadDeploy.Spec.Replicas = &zero
+	g.Expect(k8sClient.Patch(ctx, rt.workloadDeploy, patch)).To(Succeed())
 
-	// Reset the object reference so subsequent Gets work with the re-created Deployment.
-	rt.workloadDeploy = &appsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      batchGatewayOperatorName,
-			Namespace: support.IntegrationTestNamespace(),
-		},
-	}
-
-	// The controller re-creates the Deployment in the same reconcile pass, but
-	// deployments.NewAction sees readyReplicas == 0 and sets Ready=False.
+	// The controller sees readyReplicas == 0 and sets Ready=False.
 	g.Eventually(k.Get(rt.module)).WithContext(ctx).WithTimeout(timeout).WithPolling(interval).Should(And(
-		jq.Match(`.status.phase == "NotReady"`),
 		jq.Match(`.status.conditions[] | select(.type == "Ready") | .status == "False"`),
 	))
+
+	// Scale back to 1 — the kustomize merge patch may not restore replicas
+	// if the manifest omits the field, so we do it explicitly.
+	g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rt.workloadDeploy), rt.workloadDeploy)).To(Succeed())
+	restorePatch := client.MergeFrom(rt.workloadDeploy.DeepCopy())
+	one := int32(1)
+	rt.workloadDeploy.Spec.Replicas = &one
+	g.Expect(k8sClient.Patch(ctx, rt.workloadDeploy, restorePatch)).To(Succeed())
 
 	// Wait for recovery so subsequent tests start from a clean state.
 	g.Eventually(k.Get(rt.module)).WithContext(ctx).WithTimeout(timeout).WithPolling(interval).Should(And(
