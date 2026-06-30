@@ -29,6 +29,8 @@ COPY pkg/ pkg/
 COPY config/manifests/batchgateway/ config/manifests/batchgateway/
 COPY config/manifests/maascontroller/ config/manifests/maascontroller/
 
+RUN chmod -R a+rX config/manifests/
+
 # Generated code and manifests come from the host (make container-prep).
 # Only compile the manager binary inside the image.
 RUN VERSION_PKG="github.com/opendatahub-io/ai-gateway-operator/pkg/version" && \
@@ -42,9 +44,7 @@ RUN VERSION_PKG="github.com/opendatahub-io/ai-gateway-operator/pkg/version" && \
 FROM registry.access.redhat.com/ubi10/ubi-micro:10.0
 WORKDIR /
 COPY --from=builder /workspace/bin/manager .
-COPY --from=builder /workspace/config/manifests/ /manifests/
-# Make manifests readable by any user (OpenShift assigns arbitrary UIDs)
-RUN chmod -R a+rX /manifests/
+COPY --from=builder /workspace/config/manifests/ /opt/manifests/
 USER 65532:65532
 
 ENTRYPOINT ["/manager"]
