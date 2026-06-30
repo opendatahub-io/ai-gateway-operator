@@ -21,11 +21,22 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - endpoints
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
   - namespaces
   verbs:
   - create
   - get
   - list
+  - patch
+  - update
   - watch
 - apiGroups:
   - ""
@@ -70,6 +81,7 @@ rules:
   - customresourcedefinitions
   verbs:
   - create
+  - get
   - list
   - watch
 - apiGroups:
@@ -113,6 +125,35 @@ rules:
   - list
   - patch
   - update
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - deployments/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - authentication.k8s.io
+  resources:
+  - tokenreviews
+  verbs:
+  - create
+- apiGroups:
+  - authorization.k8s.io
+  resources:
+  - subjectaccessreviews
+  verbs:
+  - create
+- apiGroups:
+  - batch
+  resources:
+  - cronjobs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
   - watch
 - apiGroups:
   - batch.llm-d.ai
@@ -175,10 +216,61 @@ rules:
   - components.platform.opendatahub.io
   resources:
   - aigateways/status
+  - modelsasservices/status
   verbs:
   - get
   - patch
   - update
+- apiGroups:
+  - components.platform.opendatahub.io
+  resources:
+  - modelsasservices
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - config.openshift.io
+  resources:
+  - authentications
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - extensions.kuadrant.io
+  resources:
+  - telemetrypolicies
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
+  - gateway.networking.k8s.io
+  resources:
+  - gateways
+  - referencegrants
+  verbs:
+  - get
+  - list
+  - watch
 - apiGroups:
   - gateway.networking.k8s.io
   resources:
@@ -194,11 +286,103 @@ rules:
 - apiGroups:
   - gateway.networking.k8s.io
   resources:
-  - referencegrants
+  - httproutes/finalizers
   verbs:
+  - update
+- apiGroups:
+  - inference.opendatahub.io
+  resources:
+  - externalmodels
+  - externalproviders
+  verbs:
+  - create
   - get
   - list
+  - update
   - watch
+- apiGroups:
+  - inference.opendatahub.io
+  resources:
+  - externalmodels/finalizers
+  - externalproviders/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - inference.opendatahub.io
+  resources:
+  - externalmodels/status
+  - externalproviders/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - kuadrant.io
+  resources:
+  - authpolicies
+  - tokenratelimitpolicies
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - kuadrant.io
+  resources:
+  - ratelimitpolicies
+  - telemetrypolicies
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
+  - maas.opendatahub.io
+  resources:
+  - aitenants
+  - configs
+  - externalmodels
+  - maasauthpolicies
+  - maasmodelrefs
+  - maassubscriptions
+  - tenants
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - maas.opendatahub.io
+  resources:
+  - aitenants/finalizers
+  - configs/finalizers
+  - externalmodels/finalizers
+  - maasauthpolicies/finalizers
+  - maasmodelrefs/finalizers
+  - maassubscriptions/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - maas.opendatahub.io
+  resources:
+  - aitenants/status
+  - configs/status
+  - maasauthpolicies/status
+  - maasmodelrefs/status
+  - maassubscriptions/status
+  - tenants/status
+  verbs:
+  - get
+  - patch
+  - update
 - apiGroups:
   - monitoring.coreos.com
   resources:
@@ -212,6 +396,71 @@ rules:
   - list
   - patch
   - update
+  - watch
+- apiGroups:
+  - networking.istio.io
+  resources:
+  - destinationrules
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - networking.istio.io
+  resources:
+  - envoyfilters
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
+  - networking.istio.io
+  resources:
+  - serviceentries
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - update
+  - watch
+- apiGroups:
+  - networking.k8s.io
+  resources:
+  - networkpolicies
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
+  - operator.authorino.kuadrant.io
+  resources:
+  - authorinos
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - perses.dev
+  resources:
+  - persesdashboards
+  - persesdatasources
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
   - watch
 - apiGroups:
   - rbac.authorization.k8s.io
@@ -243,6 +492,7 @@ rules:
   - clusterroles
   verbs:
   - create
+  - get
   - list
   - watch
 - apiGroups:
@@ -284,4 +534,23 @@ rules:
   - list
   - patch
   - update
+  - watch
+- apiGroups:
+  - serving.kserve.io
+  resources:
+  - llminferenceservices
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - telemetry.istio.io
+  resources:
+  - telemetries
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
   - watch

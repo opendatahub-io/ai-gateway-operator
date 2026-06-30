@@ -39,6 +39,19 @@ AIGateway CR
 
 The `AIGateway` CR itself is created by opendatahub-operator — see [integration-opendatahub-operator.md](integration-opendatahub-operator.md).
 
+### MaaS deployment scope
+
+When `spec.modelsAsService.managementState` is `Managed`, ai-gateway-operator renders and deploys **`config/manifests/maascontroller/base/`** only:
+
+| Included | Not deployed by this operator |
+|----------|------------------------------|
+| MaaS CRDs | maas-api |
+| maas-controller Deployment | Billing |
+| Controller RBAC + webhook | Observability (Grafana/Perses) |
+| | Gateway policies (`config/manifests/maas/`) |
+
+The operator's RBAC escalation rules in `config/rbac/role.yaml` must cover permissions inside the vendored `maascontroller` ClusterRoles (see kubebuilder markers in `aigateway_controller.go`). Do not edit `config/manifests/maascontroller/rbac/` directly — it is refreshed by `make get-manifests`.
+
 ## 2. Build process
 
 ### 2.1 Each sub-component prepares its manifests
@@ -53,7 +66,7 @@ Each sub-component operator (e.g. batch-gateway-operator) lives in its own midst
 
 `make get-manifests` (`hack/scripts/get-manifests.sh`) fetches each sub-component's manifests from its repo at a pinned commit SHA and copies them into `config/manifests/<sub-component>/` (e.g. `config/manifests/batchgateway/`).
 - The fetched files must be committed to git so that PR review can catch manifest changes and container builds remain reproducible without network access.
-- At build time, `Containerfile` copies these manifests into the container image at `/manifests/` for the controller to use at runtime.
+- At build time, `Containerfile` copies these manifests into the container image at `/opt/manifests/`; an init container copies them into a writable emptyDir at runtime (see `config/manager/manager.yaml`).
 - To upgrade a sub-component, update the SHA in `get-manifests.sh`, re-run `make get-manifests`, and commit the result.
 
 ### 2.3 ai-gateway-operator generates its own deploy manifests

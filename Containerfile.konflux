@@ -21,6 +21,7 @@ COPY internal/ internal/
 COPY pkg/ pkg/
 
 COPY config/manifests/batchgateway/ config/manifests/batchgateway/
+COPY config/manifests/maascontroller/ config/manifests/maascontroller/
 
 RUN VERSION_PKG="github.com/opendatahub-io/ai-gateway-operator/pkg/version" && \
     if [ -z "${LDFLAGS}" ] && [ -n "${GIT_COMMIT}" ]; then \
@@ -36,7 +37,7 @@ RUN chmod -R a+rX config/manifests/
 FROM registry.access.redhat.com/ubi9/ubi-minimal:9.7@sha256:d91be7cea9f03a757d69ad7fcdfcd7849dba820110e7980d5e2a1f46ed06ea3b
 WORKDIR /
 COPY --from=builder /opt/app-root/src/bin/manager /manager
-COPY --from=builder /opt/app-root/src/config/manifests/ /manifests/
+COPY --from=builder /opt/app-root/src/config/manifests/ /opt/manifests/
 
 USER 65532:65532
 ENTRYPOINT ["/manager"]

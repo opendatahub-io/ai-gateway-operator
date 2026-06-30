@@ -52,7 +52,10 @@ spec:
       - name: copy-manifests
         image: controller:latest
         imagePullPolicy: Always
-        command: ["cp", "-r", "/manifests/.", "/opt/manifests/"]
+        # Manifests are baked into the image at /opt/manifests. Mount the emptyDir
+        # elsewhere so the image layer stays visible as the copy source; the manager
+        # container mounts the same volume at /opt/manifests for runtime writes.
+        command: ["cp", "-r", "/opt/manifests/.", "/mnt/manifests/"]
         securityContext:
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true
@@ -61,7 +64,7 @@ spec:
             - "ALL"
         volumeMounts:
         - name: manifests
-          mountPath: /opt/manifests
+          mountPath: /mnt/manifests
       containers:
       - command:
         - /manager
