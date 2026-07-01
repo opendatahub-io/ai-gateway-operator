@@ -29,6 +29,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -179,6 +180,25 @@ func pollFor(ctx context.Context, desc string, fn func() (bool, error)) error {
 	}
 	fmt.Fprintf(os.Stderr, "Timed out waiting for %s\n", desc)
 	return fmt.Errorf("timed out waiting for %s", desc)
+}
+
+func waitForDeleted(t *testing.T, obj client.Object) {
+	t.Helper()
+
+	g := NewWithT(t)
+	g.Eventually(func(g Gomega) {
+		fresh := obj.DeepCopyObject().(client.Object)
+		err := k8sClient.Get(ctx, client.ObjectKeyFromObject(obj), fresh)
+		g.Expect(k8serr.IsNotFound(err)).To(BeTrue())
+	}).WithContext(ctx).WithTimeout(timeout).WithPolling(interval).Should(Succeed())
+}
+
+func waitForSingletonDeleted(t *testing.T, obj client.Object) {
+	t.Helper()
+
+	waitForDeleted(t, obj)
+	obj.SetResourceVersion("")
+	obj.SetUID("")
 }
 
 func eventuallyDeploymentReady(t *testing.T, deploy *appsv1.Deployment) {

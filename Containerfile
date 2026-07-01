@@ -25,8 +25,9 @@ COPY api/ api/
 COPY cmd/ cmd/
 COPY internal/ internal/
 COPY pkg/ pkg/
-# only the sub-modules need to be copied here TODO: maas
+# only the sub-modules need to be copied here
 COPY config/manifests/batchgateway/ config/manifests/batchgateway/
+COPY config/manifests/maascontroller/ config/manifests/maascontroller/
 
 # Generated code and manifests come from the host (make container-prep).
 # Only compile the manager binary inside the image.
@@ -44,7 +45,7 @@ RUN chmod -R a+rX config/manifests/
 FROM registry.access.redhat.com/ubi10/ubi-micro:10.0
 WORKDIR /
 COPY --from=builder /workspace/bin/manager .
-COPY --from=builder /workspace/config/manifests/ /manifests/
+COPY --from=builder /workspace/config/manifests/ /opt/manifests/
 USER 65532:65532
 
 ENTRYPOINT ["/manager"]

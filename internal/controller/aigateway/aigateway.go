@@ -47,11 +47,19 @@ var batchGatewayImageParamMap = map[string]string{
 	"LLM_D_ASYNC_IMAGE":                   "RELATED_IMAGE_ODH_LLM_D_ASYNC_IMAGE",
 }
 
+var maasImageParamMap = map[string]string{
+	"MAAS_CONTROLLER_IMAGE":      "RELATED_IMAGE_ODH_MAAS_CONTROLLER_IMAGE",
+	"MAAS_API_IMAGE":             "RELATED_IMAGE_ODH_MAAS_API_IMAGE",
+	"PAYLOAD_PROCESSING_IMAGE":   "RELATED_IMAGE_ODH_AI_GATEWAY_PAYLOAD_PROCESSING_IMAGE",
+	"MAAS_API_KEY_CLEANUP_IMAGE": "RELATED_IMAGE_UBI_MINIMAL_IMAGE",
+}
+
 // Module holds process-lifetime state for the aigateway controller.
 type Module struct {
 	cfg                      *moduleconfig.Config
 	version                  componentApi.SemVer
 	batchGatewayManifestInfo odhtypes.ManifestInfo
+	maasManifestInfo         odhtypes.ManifestInfo
 }
 
 // NewModule creates a Module with one-shot computed state.
@@ -71,10 +79,21 @@ func NewModule(cfg *moduleconfig.Config) (*Module, error) {
 		return nil, fmt.Errorf("failed to update images on path %s: %w", batchMI, err)
 	}
 
+	maasMI := odhtypes.ManifestInfo{
+		Path:       cfg.ManifestsPath,
+		ContextDir: "maascontroller",
+		SourcePath: "default",
+	}
+
+	if err := odhdeploy.ApplyParams(maasMI.String(), "params.env", maasImageParamMap, nil); err != nil {
+		return nil, fmt.Errorf("failed to update images on path %s: %w", maasMI, err)
+	}
+
 	return &Module{
 		cfg:                      cfg,
 		version:                  v,
 		batchGatewayManifestInfo: batchMI,
+		maasManifestInfo:         maasMI,
 	}, nil
 }
 
@@ -98,16 +117,26 @@ func (m *Module) initialize(_ context.Context, rr *odhtypes.ReconciliationReques
 		}
 	}
 
-	// TODO: add for maas
+	if obj.Spec.ModelsAsService.ManagementState == managedState {
+		rr.Manifests = append(rr.Manifests, m.maasManifestInfo)
+
+		if err := odhdeploy.ApplyParams(
+			m.maasManifestInfo.String(),
+			"params.env",
+			nil,
+			map[string]string{"namespace": m.cfg.ApplicationsNamespace},
+		); err != nil {
+			return fmt.Errorf("failed to update maas params.env: %w", err)
+		}
+	}
 
 	return nil
 }
 
 // anySubModuleManaged reports whether at least one AIGateway sub-module is set to Managed.
 func anySubModuleManaged(obj *componentApi.AIGateway) bool {
-	return obj.Spec.BatchGateway.ManagementState == managedState
-	// TODO: add maas once it lands, e.g.:
-	//   || obj.Spec.MaaS.ManagementState == managedState
+	return obj.Spec.BatchGateway.ManagementState == managedState ||
+		obj.Spec.ModelsAsService.ManagementState == managedState
 }
 
 // force to set the DeploymentsAvailable condition to Info level from Error

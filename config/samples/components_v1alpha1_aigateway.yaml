@@ -6,5 +6,10 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: default-aigateway
 spec:
+  # Enable batch-gateway operator for Kueue-based batch inference
   batchGateway:
     managementState: Managed
+  # Models as a Service - set to Managed to enable
+  # See docs/enabling-models-as-a-service.md for details
+  modelsAsService:
+    managementState: Removed

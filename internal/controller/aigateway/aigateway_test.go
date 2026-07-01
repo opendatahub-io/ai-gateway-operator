@@ -79,6 +79,8 @@ func TestNewModule(t *testing.T) {
 	g.Expect(m.cfg).To(Equal(cfg))
 	g.Expect(m.batchGatewayManifestInfo.ContextDir).To(Equal("batchgateway"))
 	g.Expect(m.batchGatewayManifestInfo.SourcePath).To(Equal("base"))
+	g.Expect(m.maasManifestInfo.ContextDir).To(Equal("maascontroller"))
+	g.Expect(m.maasManifestInfo.SourcePath).To(Equal("default"))
 }
 
 func TestNewModuleInvalidVersion(t *testing.T) {

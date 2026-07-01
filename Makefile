@@ -132,7 +132,7 @@ build-bin: ## Build manager binary only (for Containerfile; run container-prep o
 		go build -ldflags "$(LDFLAGS)" -o "$(BIN_DIR)/$(BIN_NAME)" cmd/main.go
 
 .PHONY: container-prep
-container-prep: manifests generate ## On host: regenerate code and fetch manifests before container-build.
+container-prep: manifests generate get-manifests ## On host: regenerate code and fetch manifests before container-build.
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
