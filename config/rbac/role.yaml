@@ -50,6 +50,12 @@ rules:
   - watch
 - apiGroups:
   - ""
+  resources:
+  - serviceaccounts/token
+  verbs:
+  - create
+- apiGroups:
+  - ""
   - events.k8s.io
   resources:
   - events
@@ -493,8 +499,10 @@ rules:
   - clusterroles
   verbs:
   - create
+  - delete
   - get
   - list
+  - patch
   - watch
 - apiGroups:
   - rbac.authorization.k8s.io
