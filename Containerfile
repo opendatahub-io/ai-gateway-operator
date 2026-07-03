@@ -45,7 +45,7 @@ RUN chmod -R a+rX config/manifests/
 FROM registry.access.redhat.com/ubi10/ubi-micro:10.0
 WORKDIR /
 COPY --from=builder /workspace/bin/manager .
-COPY --from=builder /workspace/config/manifests/ /opt/manifests/
+COPY --from=builder /workspace/config/manifests/ /manifests/
 USER 65532:65532
 
 ENTRYPOINT ["/manager"]

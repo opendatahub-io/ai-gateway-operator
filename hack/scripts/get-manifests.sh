@@ -66,14 +66,10 @@ fetch_component() {
 # ODH commits:   https://github.com/opendatahub-io/<repo_name>/commits/
 # RHDS commits: https://github.com/red-hat-data-services/<repo_name>/commits/
 
-# Temporarily disable 'nounset' for array declaration (bash quirk with set -u)
-set +u
 declare -A COMPONENTS=(
     [batchgateway]="llm-d-batch-gateway-operator|config|96266f4b7d9d8b4fbe56225a2b37e064717cd3e1|3ffb67bc46bc00e2183df4f568c92d621cdc1743"
-    # MaaS: latest main branch commit
     [maascontroller]="models-as-a-service|deployment/base/maas-controller|fbe914c4147d79217de034fa2d02ef819ea9681a|fbe914c4147d79217de034fa2d02ef819ea9681a"
 )
-set -u
 
 for component_name in "${!COMPONENTS[@]}"; do
     IFS='|' read -r repo_name src_path odh_commit rhds_commit <<< "${COMPONENTS[$component_name]}"
