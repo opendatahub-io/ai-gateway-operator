@@ -153,6 +153,7 @@ func NewReconciler(
 			deploy.WithCache(),
 			deploy.WithApplyOrder(),
 		)).
+		WithAction(m.ownDerivedResources).
 		WithAction(deployments.NewAction()).
 		WithAction(m.overWriteCondition).
 		WithAction(m.reportStatus).

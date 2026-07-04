@@ -21,11 +21,19 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
+	dsciv2 "github.com/opendatahub-io/opendatahub-operator/v2/api/dscinitialization/v2"
+	serviceApi "github.com/opendatahub-io/opendatahub-operator/v2/api/services/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	componentApi "github.com/opendatahub-io/ai-gateway-operator/api/components/v1alpha1"
 	moduleconfig "github.com/opendatahub-io/ai-gateway-operator/pkg/config"
 	"github.com/opendatahub-io/ai-gateway-operator/pkg/version"
+	"github.com/opendatahub-io/opendatahub-operator/v2/pkg/cluster/gvk"
 	odhtypes "github.com/opendatahub-io/opendatahub-operator/v2/pkg/controller/types"
 )
 
@@ -80,7 +88,7 @@ func TestNewModule(t *testing.T) {
 	g.Expect(m.batchGatewayManifestInfo.ContextDir).To(Equal("batchgateway"))
 	g.Expect(m.batchGatewayManifestInfo.SourcePath).To(Equal("base"))
 	g.Expect(m.maasManifestInfo.ContextDir).To(Equal("maascontroller"))
-	g.Expect(m.maasManifestInfo.SourcePath).To(Equal("default"))
+	g.Expect(m.maasManifestInfo.SourcePath).To(Equal("base"))
 }
 
 func TestNewModuleInvalidVersion(t *testing.T) {
@@ -120,6 +128,64 @@ func TestInitializeRemoved(t *testing.T) {
 
 	g.Expect(m.initialize(context.Background(), rr)).To(Succeed())
 	g.Expect(rr.Manifests).To(BeEmpty())
+}
+
+func TestInitializeManagedMaaS(t *testing.T) {
+	g := NewWithT(t)
+
+	m := newTestModule(t)
+	obj := newTestAIGateway()
+	obj.Spec.ModelsAsService.ManagementState = "Managed"
+	rr := newTestRR(obj)
+
+	scheme := runtime.NewScheme()
+	utilruntime.Must(dsciv2.AddToScheme(scheme))
+	rr.Client = fake.NewClientBuilder().WithScheme(scheme).WithObjects(&dsciv2.DSCInitialization{
+		ObjectMeta: metav1.ObjectMeta{Name: "default-dsci"},
+		Spec: dsciv2.DSCInitializationSpec{
+			Monitoring: serviceApi.DSCIMonitoring{
+				MonitoringCommonSpec: serviceApi.MonitoringCommonSpec{
+					Namespace: "test-monitoring",
+				},
+			},
+		},
+	}).Build()
+
+	g.Expect(m.initialize(context.Background(), rr)).To(Succeed())
+	g.Expect(rr.Manifests).To(HaveLen(1))
+	g.Expect(rr.Manifests[0].Path).To(Equal("/manifests"))
+	g.Expect(rr.Manifests[0].ContextDir).To(Equal("maascontroller"))
+}
+
+func TestOwnDerivedResourcesMaaSConfig(t *testing.T) {
+	g := NewWithT(t)
+
+	m := newTestModule(t)
+	obj := newTestAIGateway()
+	obj.Spec.ModelsAsService.ManagementState = "Managed"
+	obj.UID = types.UID("test-aigateway-uid")
+	rr := newTestRR(obj)
+
+	scheme := runtime.NewScheme()
+	utilruntime.Must(componentApi.AddToScheme(scheme))
+
+	cfg := &unstructured.Unstructured{}
+	cfg.SetGroupVersionKind(gvk.MaasConfig)
+	cfg.SetName(maasClusterConfigName)
+
+	rr.Client = fake.NewClientBuilder().WithScheme(scheme).WithObjects(cfg).Build()
+
+	g.Expect(m.ownDerivedResources(context.Background(), rr)).To(Succeed())
+
+	updated := &unstructured.Unstructured{}
+	updated.SetGroupVersionKind(gvk.MaasConfig)
+	g.Expect(rr.Client.Get(context.Background(), types.NamespacedName{Name: maasClusterConfigName}, updated)).To(Succeed())
+	g.Expect(updated.GetOwnerReferences()).To(HaveLen(1))
+	g.Expect(updated.GetOwnerReferences()[0].Kind).To(Equal(componentApi.AIGatewayKind))
+	g.Expect(updated.GetOwnerReferences()[0].Name).To(Equal(componentApi.AIGatewayInstanceName))
+	g.Expect(updated.GetOwnerReferences()[0].UID).To(Equal(types.UID("test-aigateway-uid")))
+	g.Expect(updated.GetOwnerReferences()[0].Controller).NotTo(BeNil())
+	g.Expect(*updated.GetOwnerReferences()[0].Controller).To(BeTrue())
 }
 
 func TestInitializeDefault(t *testing.T) {
