@@ -110,9 +110,10 @@ func testMaaSConfigMapCreated(t *testing.T) {
 	}
 
 	g.Eventually(k.Get(configMap)).WithContext(ctx).WithTimeout(timeout).WithPolling(interval).Should(And(
-		jq.Match(`.data.MAAS_CONTROLLER_IMAGE != ""`),
-		jq.Match(`.data.MAAS_API_IMAGE != ""`),
-		jq.Match(`.data.MAAS_API_KEY_CLEANUP_IMAGE != ""`),
+		jq.Match(`.data."maas-controller-image" != ""`),
+		jq.Match(`.data."maas-api-image" != ""`),
+		jq.Match(`.data."maas-api-key-cleanup-image" != ""`),
+		jq.Match(`.data."monitoring-namespace" != ""`),
 	))
 }
 
