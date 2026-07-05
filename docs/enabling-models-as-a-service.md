@@ -25,7 +25,7 @@ kind: AIGateway
 metadata:
   name: default-aigateway
 spec:
-  modelsAsService:
+  modelsAsAService:
     managementState: Managed  # Use "Removed" to disable
 ```
 

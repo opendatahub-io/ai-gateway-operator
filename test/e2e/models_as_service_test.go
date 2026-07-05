@@ -38,13 +38,13 @@ import (
 
 func init() {
 	registerModuleSpec(func(spec *componentsv1alpha1.AIGatewaySpec) {
-		spec.ModelsAsService = componentsv1alpha1.DSCModelsAsServiceSpec{
+		spec.ModelsAsAService = componentsv1alpha1.ModelsAsAServiceComponent{
 			ManagementState: "Managed",
 		}
 	})
 }
 
-func TestModelsAsService(t *testing.T) {
+func TestModelsAsAService(t *testing.T) {
 	maasControllerDeploy := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "maas-controller",

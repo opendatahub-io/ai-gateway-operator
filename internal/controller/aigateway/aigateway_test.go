@@ -135,7 +135,7 @@ func TestInitializeManagedMaaS(t *testing.T) {
 
 	m := newTestModule(t)
 	obj := newTestAIGateway()
-	obj.Spec.ModelsAsService.ManagementState = "Managed"
+	obj.Spec.ModelsAsAService.ManagementState = "Managed"
 	rr := newTestRR(obj)
 
 	scheme := runtime.NewScheme()
@@ -162,7 +162,7 @@ func TestOwnDerivedResourcesMaaSConfig(t *testing.T) {
 
 	m := newTestModule(t)
 	obj := newTestAIGateway()
-	obj.Spec.ModelsAsService.ManagementState = "Managed"
+	obj.Spec.ModelsAsAService.ManagementState = "Managed"
 	obj.UID = types.UID("test-aigateway-uid")
 	rr := newTestRR(obj)
 

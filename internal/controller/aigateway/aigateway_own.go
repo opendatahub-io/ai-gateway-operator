@@ -66,7 +66,7 @@ func (m *Module) ownMaaSClusterConfig(ctx context.Context, rr *odhtypes.Reconcil
 	if !ok {
 		return fmt.Errorf("resource instance is not AIGateway: %T", rr.Instance)
 	}
-	if obj.Spec.ModelsAsService.ManagementState != managedState {
+	if obj.Spec.ModelsAsAService.ManagementState != managedState {
 		return nil
 	}
 	if rr.Client == nil {

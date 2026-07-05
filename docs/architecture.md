@@ -41,7 +41,7 @@ The `AIGateway` CR itself is created by opendatahub-operator — see [integratio
 
 ### MaaS deployment scope
 
-When `spec.modelsAsService.managementState` is `Managed`, ai-gateway-operator renders and deploys **`config/manifests/maascontroller/default/`**:
+When `spec.modelsAsAService.managementState` is `Managed`, ai-gateway-operator renders and deploys **`config/manifests/maascontroller/default/`**:
 
 | Included | Not deployed by this operator |
 |----------|------------------------------|

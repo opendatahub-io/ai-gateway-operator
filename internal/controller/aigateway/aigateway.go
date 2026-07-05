@@ -118,7 +118,7 @@ func (m *Module) initialize(ctx context.Context, rr *odhtypes.ReconciliationRequ
 		}
 	}
 
-	if obj.Spec.ModelsAsService.ManagementState == managedState {
+	if obj.Spec.ModelsAsAService.ManagementState == managedState {
 		rr.Manifests = append(rr.Manifests, m.maasManifestInfo)
 
 		if rr.Client == nil {
@@ -149,7 +149,7 @@ func (m *Module) initialize(ctx context.Context, rr *odhtypes.ReconciliationRequ
 // anySubModuleManaged reports whether at least one AIGateway sub-module is set to Managed.
 func anySubModuleManaged(obj *componentApi.AIGateway) bool {
 	return obj.Spec.BatchGateway.ManagementState == managedState ||
-		obj.Spec.ModelsAsService.ManagementState == managedState
+		obj.Spec.ModelsAsAService.ManagementState == managedState
 }
 
 // force to set the DeploymentsAvailable condition to Info level from Error

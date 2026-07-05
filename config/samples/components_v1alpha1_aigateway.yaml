@@ -8,5 +8,5 @@ metadata:
 spec:
   batchGateway:
     managementState: Managed
-  modelsAsService:
+  modelsAsAService:
     managementState: Removed

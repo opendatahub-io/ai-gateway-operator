@@ -64,8 +64,8 @@ spec:
                     - Removed
                     type: string
                 type: object
-              modelsAsService:
-                description: ModelsAsService controls the Models as a Service sub-component.
+              modelsAsAService:
+                description: ModelsAsAService controls the Models as a Service sub-component.
                 properties:
                   managementState:
                     default: Removed
