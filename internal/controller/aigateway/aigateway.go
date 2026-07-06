@@ -127,17 +127,25 @@ func (m *Module) initialize(ctx context.Context, rr *odhtypes.ReconciliationRequ
 
 		monitoringNamespace, err := cluster.MonitoringNamespace(ctx, rr.Client)
 		if err != nil {
-			return fmt.Errorf("failed to get monitoring namespace: %w", err)
+			// DSCI (DSCInitialization) is OpenShift-specific and may not exist in Kind clusters
+			// or standalone deployments. When DSCI is unavailable, we use the default value
+			// already present in params.env. This ensures MaaS deployment succeeds on all
+			// platform types.
+			monitoringNamespace = ""
+		}
+
+		params := map[string]string{
+			"namespace": m.cfg.ApplicationsNamespace,
+		}
+		if monitoringNamespace != "" {
+			params["monitoring-namespace"] = monitoringNamespace
 		}
 
 		if err := odhdeploy.ApplyParams(
 			m.maasManifestInfo.String(),
 			"params.env",
 			nil,
-			map[string]string{
-				"namespace":            m.cfg.ApplicationsNamespace,
-				"monitoring-namespace": monitoringNamespace,
-			},
+			params,
 		); err != nil {
 			return fmt.Errorf("failed to update maas params.env: %w", err)
 		}
