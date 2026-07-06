@@ -34,6 +34,7 @@ spec:
           - --maas-api-namespace=$(MAAS_API_NAMESPACE)
           - --maas-subscription-namespace=$(MAAS_SUBSCRIPTION_NAMESPACE)
           - --aitenant-namespace=$(AITENANT_NAMESPACE)
+          - --monitoring-namespace=$(MONITORING_NAMESPACE)
           - --enable-tenant-namespace-discovery
           - --metadata-cache-ttl=60
           - --authz-cache-ttl=60
@@ -47,29 +48,35 @@ spec:
           - name: GATEWAY_NAMESPACE
             value: "openshift-ingress"
           - name: MAAS_API_NAMESPACE
-            value: "models-as-a-service"
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
           - name: MAAS_SUBSCRIPTION_NAMESPACE
             value: "models-as-a-service"
           - name: AITENANT_NAMESPACE
             value: "ai-tenants"
-          # RELATED_IMAGE_* vars are injected by the ODH module injectModuleEnv action.
-          # For kustomize/local installs, deploy.sh may still populate maas-parameters.
           - name: RELATED_IMAGE_ODH_MAAS_API_IMAGE
             valueFrom:
               configMapKeyRef:
-                key: MAAS_API_IMAGE
+                key: maas-api-image
                 name: maas-parameters
                 optional: true
           - name: RELATED_IMAGE_ODH_AI_GATEWAY_PAYLOAD_PROCESSING_IMAGE
             valueFrom:
               configMapKeyRef:
-                key: PAYLOAD_PROCESSING_IMAGE
+                key: payload-processing-image
                 name: maas-parameters
                 optional: true
           - name: RELATED_IMAGE_UBI_MINIMAL_IMAGE
             valueFrom:
               configMapKeyRef:
-                key: MAAS_API_KEY_CLEANUP_IMAGE
+                key: maas-api-key-cleanup-image
+                name: maas-parameters
+                optional: true
+          - name: MONITORING_NAMESPACE
+            valueFrom:
+              configMapKeyRef:
+                key: monitoring-namespace
                 name: maas-parameters
                 optional: true
         image: maas-controller
@@ -106,17 +113,10 @@ spec:
         - mountPath: /tmp/k8s-webhook-server/serving-certs
           name: webhook-cert
           readOnly: true
-        - mountPath: /etc/ssl/certs/odh-trusted-ca-bundle
-          name: odh-trusted-ca-bundle
-          readOnly: true
       volumes:
       - name: webhook-cert
         secret:
           defaultMode: 420
           secretName: maas-controller-webhook-cert
-      - name: odh-trusted-ca-bundle
-        configMap:
-          name: odh-trusted-ca-bundle
-          optional: true
       serviceAccountName: maas-controller
       terminationGracePeriodSeconds: 30

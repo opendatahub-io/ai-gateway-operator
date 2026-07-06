@@ -22,6 +22,7 @@ import (
 	"sort"
 
 	"github.com/opendatahub-io/opendatahub-operator/v2/api/common"
+	"github.com/opendatahub-io/opendatahub-operator/v2/pkg/cluster"
 	"github.com/opendatahub-io/opendatahub-operator/v2/pkg/controller/conditions"
 	odhtypes "github.com/opendatahub-io/opendatahub-operator/v2/pkg/controller/types"
 	odhdeploy "github.com/opendatahub-io/opendatahub-operator/v2/pkg/deploy"
@@ -48,10 +49,10 @@ var batchGatewayImageParamMap = map[string]string{
 }
 
 var maasImageParamMap = map[string]string{
-	"MAAS_CONTROLLER_IMAGE":      "RELATED_IMAGE_ODH_MAAS_CONTROLLER_IMAGE",
-	"MAAS_API_IMAGE":             "RELATED_IMAGE_ODH_MAAS_API_IMAGE",
-	"PAYLOAD_PROCESSING_IMAGE":   "RELATED_IMAGE_ODH_AI_GATEWAY_PAYLOAD_PROCESSING_IMAGE",
-	"MAAS_API_KEY_CLEANUP_IMAGE": "RELATED_IMAGE_UBI_MINIMAL_IMAGE",
+	"maas-controller-image":      "RELATED_IMAGE_ODH_MAAS_CONTROLLER_IMAGE",
+	"maas-api-image":             "RELATED_IMAGE_ODH_MAAS_API_IMAGE",
+	"payload-processing-image":   "RELATED_IMAGE_ODH_AI_GATEWAY_PAYLOAD_PROCESSING_IMAGE",
+	"maas-api-key-cleanup-image": "RELATED_IMAGE_UBI_MINIMAL_IMAGE",
 }
 
 // Module holds process-lifetime state for the aigateway controller.
@@ -82,7 +83,7 @@ func NewModule(cfg *moduleconfig.Config) (*Module, error) {
 	maasMI := odhtypes.ManifestInfo{
 		Path:       cfg.ManifestsPath,
 		ContextDir: "maascontroller",
-		SourcePath: "default",
+		SourcePath: "base",
 	}
 
 	if err := odhdeploy.ApplyParams(maasMI.String(), "params.env", maasImageParamMap, nil); err != nil {
@@ -98,7 +99,7 @@ func NewModule(cfg *moduleconfig.Config) (*Module, error) {
 }
 
 // initialize conditionally includes batch-gateway manifests based on CRD spec.
-func (m *Module) initialize(_ context.Context, rr *odhtypes.ReconciliationRequest) error {
+func (m *Module) initialize(ctx context.Context, rr *odhtypes.ReconciliationRequest) error {
 	obj, ok := rr.Instance.(*componentApi.AIGateway)
 	if !ok {
 		return fmt.Errorf("instance is not an AIGateway")
@@ -117,14 +118,26 @@ func (m *Module) initialize(_ context.Context, rr *odhtypes.ReconciliationReques
 		}
 	}
 
-	if obj.Spec.ModelsAsService.ManagementState == managedState {
+	if obj.Spec.ModelsAsAService.ManagementState == managedState {
 		rr.Manifests = append(rr.Manifests, m.maasManifestInfo)
+
+		if rr.Client == nil {
+			return fmt.Errorf("reconciliation client is nil")
+		}
+
+		monitoringNamespace, err := cluster.MonitoringNamespace(ctx, rr.Client)
+		if err != nil {
+			return fmt.Errorf("failed to get monitoring namespace: %w", err)
+		}
 
 		if err := odhdeploy.ApplyParams(
 			m.maasManifestInfo.String(),
 			"params.env",
 			nil,
-			map[string]string{"namespace": m.cfg.ApplicationsNamespace},
+			map[string]string{
+				"namespace":            m.cfg.ApplicationsNamespace,
+				"monitoring-namespace": monitoringNamespace,
+			},
 		); err != nil {
 			return fmt.Errorf("failed to update maas params.env: %w", err)
 		}
@@ -136,7 +149,7 @@ func (m *Module) initialize(_ context.Context, rr *odhtypes.ReconciliationReques
 // anySubModuleManaged reports whether at least one AIGateway sub-module is set to Managed.
 func anySubModuleManaged(obj *componentApi.AIGateway) bool {
 	return obj.Spec.BatchGateway.ManagementState == managedState ||
-		obj.Spec.ModelsAsService.ManagementState == managedState
+		obj.Spec.ModelsAsAService.ManagementState == managedState
 }
 
 // force to set the DeploymentsAvailable condition to Info level from Error

@@ -38,13 +38,13 @@ import (
 
 func init() {
 	registerModuleSpec(func(spec *componentsv1alpha1.AIGatewaySpec) {
-		spec.ModelsAsService = componentsv1alpha1.DSCModelsAsServiceSpec{
+		spec.ModelsAsAService = componentsv1alpha1.ModelsAsAServiceComponent{
 			ManagementState: "Managed",
 		}
 	})
 }
 
-func TestModelsAsService(t *testing.T) {
+func TestModelsAsAService(t *testing.T) {
 	maasControllerDeploy := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "maas-controller",
@@ -110,9 +110,10 @@ func testMaaSConfigMapCreated(t *testing.T) {
 	}
 
 	g.Eventually(k.Get(configMap)).WithContext(ctx).WithTimeout(timeout).WithPolling(interval).Should(And(
-		jq.Match(`.data.MAAS_CONTROLLER_IMAGE != ""`),
-		jq.Match(`.data.MAAS_API_IMAGE != ""`),
-		jq.Match(`.data.MAAS_API_KEY_CLEANUP_IMAGE != ""`),
+		jq.Match(`.data."maas-controller-image" != ""`),
+		jq.Match(`.data."maas-api-image" != ""`),
+		jq.Match(`.data."maas-api-key-cleanup-image" != ""`),
+		jq.Match(`.data."monitoring-namespace" != ""`),
 	))
 }
 

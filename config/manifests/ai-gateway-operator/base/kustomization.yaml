@@ -4,12 +4,9 @@ kind: Kustomization
 # ODH-facing deploy overlay for the ai-gateway-operator itself (the module
 # operator). opendatahub-operator's module handler renders this via kustomize
 # (ManifestDir) instead of a Helm chart. It reuses the operator's own
-# rbac/manager so it never drifts from `make manifests` output.
-#
-# CRDs are deployed separately by opendatahub-operator via config/module-crds
-# at operator install time to ensure they exist before the operator starts and
-# caches their schemas. Deploying CRDs here would cause REST mapper cache issues.
+# crd/rbac/manager so it never drifts from `make manifests` output.
 resources:
+  - ../../../crd
   - ../../../rbac
   - ../../../manager
   - metrics_service.yaml
