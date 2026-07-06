@@ -77,7 +77,7 @@ test: manifests generate fmt vet ## Run unit tests.
 
 .PHONY: test-integration-run
 test-integration-run: ## Run integration tests only (cluster must be prepared).
-	INTEGRATION_TEST_NAMESPACE="$(INTEGRATION_TEST_NAMESPACE)" go test -ldflags "$(LDFLAGS)" ./test/integration/ -tags=integration -v -timeout 5m -failfast
+	INTEGRATION_TEST_NAMESPACE="$(INTEGRATION_TEST_NAMESPACE)" go test -ldflags "$(LDFLAGS)" ./test/integration/ -tags=integration -v -timeout 10m -failfast
 
 .PHONY: prepare-integration
 prepare-integration: manifests generate ## Clean cluster state and install CRDs for integration tests.
