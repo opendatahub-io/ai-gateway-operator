@@ -66,7 +66,7 @@ fetch_component() {
 # ODH commits:   https://github.com/opendatahub-io/<repo_name>/commits/
 # RHDS commits: https://github.com/red-hat-data-services/<repo_name>/commits/
 declare -A COMPONENTS=(
-    [batchgateway]="llm-d-batch-gateway-operator|config|84803ce7449c44827f2f8bfc127b193ce947dad8|3ffb67bc46bc00e2183df4f568c92d621cdc1743"
+    [batchgateway]="llm-d-batch-gateway-operator|config|bdc9f53ce5b17ab399b77b475ba9926433b5663e|d62aac61048cd4ecda748d03f82a0f49cf8315e6"
     # [maas]="models-as-a-service|config|<odh_commit>|<rhds_commit>"
 )
 
