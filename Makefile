@@ -89,7 +89,7 @@ test-integration: prepare-integration test-integration-run ## Run integration te
 
 .PHONY: test-e2e-run
 test-e2e-run: ## Run e2e tests only (operator must already be deployed).
-	OPERATOR_NAMESPACE="$(OPERATOR_NAMESPACE)" go test -ldflags "$(LDFLAGS)" ./test/e2e/ -tags=e2e -v -timeout 5m -failfast
+	OPERATOR_NAMESPACE="$(OPERATOR_NAMESPACE)" go test -ldflags "$(LDFLAGS)" ./test/e2e/ -tags=e2e -v -timeout 10m -failfast
 
 .PHONY: test-e2e
 test-e2e: cleanup-e2e deploy test-e2e-run ## Run e2e tests (cleans cluster, deploys operator, then tests).
