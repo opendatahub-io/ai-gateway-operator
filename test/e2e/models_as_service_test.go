@@ -109,7 +109,9 @@ func ensurePrometheusCRDs(ctx context.Context, k8sClient client.Client) error {
 // informer cache and crashes the pod.
 func ensureOptionalCRDStubs(ctx context.Context, k8sClient client.Client) error {
 	crds := []apiextensionsv1.CustomResourceDefinition{
-		minimalCRD("authpolicies.kuadrant.io", "kuadrant.io", "v1beta2",
+		// Versions must match what maas-controller registers at runtime.
+		// AuthPolicy: kuadrant.io/v1 (confirmed from crash log).
+		minimalCRD("authpolicies.kuadrant.io", "kuadrant.io", "v1",
 			"AuthPolicy", "authpolicies", "authpolicy", apiextensionsv1.NamespaceScoped),
 		minimalCRD("tokenratelimitpolicies.kuadrant.io", "kuadrant.io", "v1beta3",
 			"TokenRateLimitPolicy", "tokenratelimitpolicies", "tokenratelimitpolicy", apiextensionsv1.NamespaceScoped),
@@ -359,23 +361,25 @@ func testDefaultTenantCreated(t *testing.T) {
 	t.Helper()
 	g := NewWithT(t)
 
-	// The default Tenant CR is created in the operator's namespace
-	// We need to use unstructured client because Tenant CRD type is not in our scheme
-	tenant := &metav1.PartialObjectMetadata{
+	// maas-controller bootstrap creates a default AITenant named "models-as-a-service"
+	// in the ai-tenants namespace (controlled by --aitenant-namespace flag).
+	// This is the cluster-level tenant entry point; individual Tenant CRs are
+	// created by the AITenant reconciler once infrastructure is available.
+	aiTenant := &metav1.PartialObjectMetadata{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "maas.opendatahub.io/v1alpha1",
-			Kind:       "Tenant",
+			Kind:       "AITenant",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "default-tenant",
-			Namespace: operatorNamespace,
+			Name:      "models-as-a-service",
+			Namespace: "ai-tenants",
 		},
 	}
 
 	g.Eventually(func(g Gomega) {
-		err := k8sClient.Get(ctx, client.ObjectKeyFromObject(tenant), tenant)
+		err := k8sClient.Get(ctx, client.ObjectKeyFromObject(aiTenant), aiTenant)
 		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(tenant.GetName()).To(Equal("default-tenant"))
+		g.Expect(aiTenant.GetName()).To(Equal("models-as-a-service"))
 	}).WithContext(ctx).WithTimeout(timeout).WithPolling(interval).Should(Succeed())
 }
 
