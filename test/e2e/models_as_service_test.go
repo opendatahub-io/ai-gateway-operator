@@ -301,9 +301,9 @@ func TestModelsAsAService(t *testing.T) {
 	t.Run("should create maas-parameters ConfigMap", func(t *testing.T) {
 		testMaaSConfigMapCreated(t)
 	})
-	t.Run("should create default Tenant CR", func(t *testing.T) {
-		testDefaultTenantCreated(t)
-	})
+	// AITenant bootstrap is maas-controller's internal lifecycle responsibility,
+	// not AGO's. It requires a working webhook (cert-manager CA injection) which
+	// is not available in plain kind clusters. Covered by maas-controller E2E.
 	t.Run("should set platform labels on maas-controller", func(t *testing.T) {
 		testMaaSControllerPlatformLabels(t, maasControllerDeploy)
 	})
@@ -355,32 +355,6 @@ func testMaaSConfigMapCreated(t *testing.T) {
 		jq.Match(`.data."maas-api-key-cleanup-image" != ""`),
 		jq.Match(`.data."monitoring-namespace" != ""`),
 	))
-}
-
-func testDefaultTenantCreated(t *testing.T) {
-	t.Helper()
-	g := NewWithT(t)
-
-	// maas-controller bootstrap creates a default AITenant named "models-as-a-service"
-	// in the ai-tenants namespace (controlled by --aitenant-namespace flag).
-	// This is the cluster-level tenant entry point; individual Tenant CRs are
-	// created by the AITenant reconciler once infrastructure is available.
-	aiTenant := &metav1.PartialObjectMetadata{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: "maas.opendatahub.io/v1alpha1",
-			Kind:       "AITenant",
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "models-as-a-service",
-			Namespace: "ai-tenants",
-		},
-	}
-
-	g.Eventually(func(g Gomega) {
-		err := k8sClient.Get(ctx, client.ObjectKeyFromObject(aiTenant), aiTenant)
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(aiTenant.GetName()).To(Equal("models-as-a-service"))
-	}).WithContext(ctx).WithTimeout(timeout).WithPolling(interval).Should(Succeed())
 }
 
 func testMaaSControllerPlatformLabels(t *testing.T, maasControllerDeploy *appsv1.Deployment) {
