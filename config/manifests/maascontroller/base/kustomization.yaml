@@ -41,3 +41,18 @@ replacements:
           name: maas-controller
         fieldPaths:
           - spec.template.spec.containers.[name=manager].env.[name=INFRA_NAMESPACE].value
+  - source:
+      kind: ConfigMap
+      name: maas-parameters
+      fieldPath: data.infrastructure-namespace
+    targets:
+      - select:
+          kind: Role
+          name: secret-migrate-role-infra
+        fieldPaths:
+          - metadata.namespace
+      - select:
+          kind: RoleBinding
+          name: secret-migrate-rolebinding-infra
+        fieldPaths:
+          - metadata.namespace

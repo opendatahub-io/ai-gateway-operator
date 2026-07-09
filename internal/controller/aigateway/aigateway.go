@@ -40,6 +40,19 @@ const (
 	componentName = componentApi.AIGatewayComponentName
 )
 
+// deriveInfrastructureNamespace derives the infrastructure namespace from the application namespace.
+// This matches the logic in maas-controller's pkg/config/config.go and deploy.sh.
+func deriveInfrastructureNamespace(applicationNamespace string) string {
+	switch applicationNamespace {
+	case "redhat-ods-applications":
+		return "redhat-ai-gateway-infra"
+	case "opendatahub":
+		return "odh-ai-gateway-infra"
+	default:
+		return applicationNamespace
+	}
+}
+
 var batchGatewayImageParamMap = map[string]string{
 	"LLM_D_BATCH_GATEWAY_OPERATOR_IMAGE":  "RELATED_IMAGE_ODH_LLM_D_BATCH_GATEWAY_OPERATOR_IMAGE",
 	"LLM_D_BATCH_GATEWAY_APISERVER_IMAGE": "RELATED_IMAGE_ODH_LLM_D_BATCH_GATEWAY_APISERVER_IMAGE",
@@ -136,7 +149,7 @@ func (m *Module) initialize(ctx context.Context, rr *odhtypes.ReconciliationRequ
 
 		params := map[string]string{
 			"namespace":                m.cfg.ApplicationsNamespace,
-			"infrastructure-namespace": m.cfg.InfrastructureNamespace,
+			"infrastructure-namespace": deriveInfrastructureNamespace(m.cfg.ApplicationsNamespace),
 		}
 		if monitoringNamespace != "" {
 			params["monitoring-namespace"] = monitoringNamespace

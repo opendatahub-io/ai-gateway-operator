@@ -38,7 +38,6 @@ const (
 	KeyLeaderElectionID    = "leader-election-id"
 	KeyManifestsPath       = "manifests-path"
 	KeyApplicationsNS      = "applications-namespace"
-	KeyInfrastructureNS    = "infrastructure-namespace"
 	KeyPlatformType        = "platform-type"
 	KeyPlatformVersion     = "platform-version"
 
@@ -47,7 +46,6 @@ const (
 	DefaultLeaderElect         = true
 	DefaultLeaderElectionID    = "ai-gateway-lock"
 	DefaultApplicationsNS      = "opendatahub"
-	DefaultInfrastructureNS    = "odh-ai-gateway-infra"
 	DefaultPlatformType        = "unknown"
 	DefaultPlatformVersion     = "unknown"
 
@@ -89,8 +87,6 @@ type Config struct {
 	ManifestsPath string `mapstructure:"manifests-path"`
 	// ApplicationsNamespace is the namespace where module workloads are deployed.
 	ApplicationsNamespace string `mapstructure:"applications-namespace"`
-	// InfrastructureNamespace is the namespace where infrastructure services are deployed.
-	InfrastructureNamespace string `mapstructure:"infrastructure-namespace"`
 
 	// PlatformType is the platform identifier (e.g. "OpenDataHub", "SelfManagedRHOAI").
 	PlatformType string `mapstructure:"platform-type"`
@@ -165,7 +161,6 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault(KeyLeaderElect, DefaultLeaderElect)
 	v.SetDefault(KeyLeaderElectionID, DefaultLeaderElectionID)
 	v.SetDefault(KeyApplicationsNS, DefaultApplicationsNS)
-	v.SetDefault(KeyInfrastructureNS, DefaultInfrastructureNS)
 	v.SetDefault(KeyManifestsPath, "")
 	v.SetDefault(KeyPlatformType, DefaultPlatformType)
 	v.SetDefault(KeyPlatformVersion, DefaultPlatformVersion)
