@@ -135,7 +135,8 @@ func (m *Module) initialize(ctx context.Context, rr *odhtypes.ReconciliationRequ
 		}
 
 		params := map[string]string{
-			"namespace": m.cfg.ApplicationsNamespace,
+			"namespace":                m.cfg.ApplicationsNamespace,
+			"infrastructure-namespace": m.cfg.InfrastructureNamespace,
 		}
 		if monitoringNamespace != "" {
 			params["monitoring-namespace"] = monitoringNamespace

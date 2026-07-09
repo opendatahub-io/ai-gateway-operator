@@ -31,23 +31,25 @@ import (
 )
 
 const (
-	KeyMetricsAddr      = "metrics-bind-address"
-	KeyHealthProbeAddr  = "health-probe-bind-address"
-	KeyPprofAddr        = "pprof-addr"
-	KeyLeaderElect      = "leader-elect"
-	KeyLeaderElectionID = "leader-election-id"
-	KeyManifestsPath    = "manifests-path"
-	KeyApplicationsNS   = "applications-namespace"
-	KeyPlatformType     = "platform-type"
-	KeyPlatformVersion  = "platform-version"
+	KeyMetricsAddr         = "metrics-bind-address"
+	KeyHealthProbeAddr     = "health-probe-bind-address"
+	KeyPprofAddr           = "pprof-addr"
+	KeyLeaderElect         = "leader-elect"
+	KeyLeaderElectionID    = "leader-election-id"
+	KeyManifestsPath       = "manifests-path"
+	KeyApplicationsNS      = "applications-namespace"
+	KeyInfrastructureNS    = "infrastructure-namespace"
+	KeyPlatformType        = "platform-type"
+	KeyPlatformVersion     = "platform-version"
 
-	DefaultMetricsAddr      = ":8080"
-	DefaultHealthProbeAddr  = ":8081"
-	DefaultLeaderElect      = true
-	DefaultLeaderElectionID = "ai-gateway-lock"
-	DefaultApplicationsNS   = "opendatahub"
-	DefaultPlatformType     = "unknown"
-	DefaultPlatformVersion  = "unknown"
+	DefaultMetricsAddr         = ":8080"
+	DefaultHealthProbeAddr     = ":8081"
+	DefaultLeaderElect         = true
+	DefaultLeaderElectionID    = "ai-gateway-lock"
+	DefaultApplicationsNS      = "opendatahub"
+	DefaultInfrastructureNS    = "odh-ai-gateway-infra"
+	DefaultPlatformType        = "unknown"
+	DefaultPlatformVersion     = "unknown"
 
 	// ConfigPathEnvVar is the environment variable that points to the mounted
 	// ConfigMap directory (or a single config file).
@@ -87,6 +89,8 @@ type Config struct {
 	ManifestsPath string `mapstructure:"manifests-path"`
 	// ApplicationsNamespace is the namespace where module workloads are deployed.
 	ApplicationsNamespace string `mapstructure:"applications-namespace"`
+	// InfrastructureNamespace is the namespace where infrastructure services are deployed.
+	InfrastructureNamespace string `mapstructure:"infrastructure-namespace"`
 
 	// PlatformType is the platform identifier (e.g. "OpenDataHub", "SelfManagedRHOAI").
 	PlatformType string `mapstructure:"platform-type"`
@@ -161,6 +165,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault(KeyLeaderElect, DefaultLeaderElect)
 	v.SetDefault(KeyLeaderElectionID, DefaultLeaderElectionID)
 	v.SetDefault(KeyApplicationsNS, DefaultApplicationsNS)
+	v.SetDefault(KeyInfrastructureNS, DefaultInfrastructureNS)
 	v.SetDefault(KeyManifestsPath, "")
 	v.SetDefault(KeyPlatformType, DefaultPlatformType)
 	v.SetDefault(KeyPlatformVersion, DefaultPlatformVersion)

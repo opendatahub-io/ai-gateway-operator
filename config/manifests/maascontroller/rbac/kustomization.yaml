@@ -6,5 +6,8 @@ resources:
   - service_account.yaml
   - leader_election_role.yaml
   - leader_election_role_binding.yaml
+  - secret_migrate_clusterrole.yaml
+  - secret_migrate_rolebinding_controller.yaml
+  - secret_migrate_rolebinding_infra.yaml
   - owner_role.yaml
   - viewer_role.yaml
