@@ -52,6 +52,7 @@ import (
 	moduleconfig "github.com/opendatahub-io/ai-gateway-operator/pkg/config"
 	"github.com/opendatahub-io/ai-gateway-operator/pkg/version"
 	componentsv1alpha1 "github.com/opendatahub-io/ai-gateway-operator/api/components/v1alpha1"
+	dsciv2 "github.com/opendatahub-io/opendatahub-operator/v2/api/dscinitialization/v2"
 	"github.com/opendatahub-io/opendatahub-operator/v2/pkg/cluster"
 	odhmanager "github.com/opendatahub-io/opendatahub-operator/v2/pkg/manager"
 	"github.com/opendatahub-io/ai-gateway-operator/test/support"
@@ -79,6 +80,7 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(testScheme))
 	utilruntime.Must(apiextensionsv1.AddToScheme(testScheme))
 	utilruntime.Must(componentsv1alpha1.AddToScheme(testScheme))
+	utilruntime.Must(dsciv2.AddToScheme(testScheme))
 }
 
 func TestMain(m *testing.M) {
@@ -274,6 +276,36 @@ func (rt *aiGatewayTest) testBecomesReady(t *testing.T) {
 
 	rt.module.ResourceVersion = ""
 	g.Expect(k8sClient.Create(ctx, rt.module)).To(Succeed())
+
+	// Simulate deployment readiness so the test does not depend on the CI cluster
+	// being able to pull the real batch-gateway image. The controller determines
+	// AIGateway readiness from deployment.status.readyReplicas, so we patch it
+	// once the deployment exists — the same signal kubelet would send on a real pull.
+	patchCtx, patchCancel := context.WithTimeout(ctx, timeout)
+	defer patchCancel()
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-patchCtx.Done():
+				return
+			case <-ticker.C:
+				deploy := rt.workloadDeploy.DeepCopy()
+				if err := k8sClient.Get(patchCtx, client.ObjectKeyFromObject(deploy), deploy); err != nil {
+					continue
+				}
+				if deploy.Status.ReadyReplicas >= 1 {
+					return
+				}
+				patch := client.MergeFrom(deploy.DeepCopy())
+				deploy.Status.ReadyReplicas = 1
+				deploy.Status.AvailableReplicas = 1
+				deploy.Status.Replicas = 1
+				_ = k8sClient.Status().Patch(patchCtx, deploy, patch)
+			}
+		}
+	}()
 
 	g.Eventually(k.Get(rt.module)).WithContext(ctx).WithTimeout(timeout).WithPolling(interval).Should(And(
 		jq.Match(`.status.phase == "Ready"`),

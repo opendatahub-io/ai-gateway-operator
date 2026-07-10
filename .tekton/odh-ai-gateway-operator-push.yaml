@@ -24,7 +24,7 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/opendatahub/odh-ai-gateway-operator:odh-stable
+    value: quay.io/opendatahub/odh-ai-gateway-operator:latest
   - name: dockerfile
     value: Containerfile.konflux
   - name: path-context

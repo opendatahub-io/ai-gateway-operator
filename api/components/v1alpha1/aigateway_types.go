@@ -33,11 +33,21 @@ var _ common.PlatformObject = (*AIGateway)(nil)
 type AIGatewaySpec struct {
 	// BatchGateway controls the batch-gateway operator sub-component.
 	BatchGateway BatchGatewayComponent `json:"batchGateway,omitempty"`
+	// ModelsAsAService controls the Models as a Service sub-component.
+	ModelsAsAService ModelsAsAServiceComponent `json:"modelsAsAService,omitempty"`
 }
 
 // BatchGatewayComponent configures the batch-gateway operator lifecycle.
 type BatchGatewayComponent struct {
 	// ManagementState controls whether the batch-gateway operator is deployed.
+	// +kubebuilder:validation:Enum=Managed;Removed
+	// +kubebuilder:default=Removed
+	ManagementState string `json:"managementState,omitempty"`
+}
+
+// ModelsAsAServiceComponent configures the maas-controller lifecycle.
+type ModelsAsAServiceComponent struct {
+	// ManagementState controls whether the maas-controller is deployed.
 	// +kubebuilder:validation:Enum=Managed;Removed
 	// +kubebuilder:default=Removed
 	ManagementState string `json:"managementState,omitempty"`

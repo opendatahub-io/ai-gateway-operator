@@ -22,6 +22,7 @@ import (
 	"sort"
 
 	"github.com/opendatahub-io/opendatahub-operator/v2/api/common"
+	"github.com/opendatahub-io/opendatahub-operator/v2/pkg/cluster"
 	"github.com/opendatahub-io/opendatahub-operator/v2/pkg/controller/conditions"
 	odhtypes "github.com/opendatahub-io/opendatahub-operator/v2/pkg/controller/types"
 	odhdeploy "github.com/opendatahub-io/opendatahub-operator/v2/pkg/deploy"
@@ -47,11 +48,19 @@ var batchGatewayImageParamMap = map[string]string{
 	"LLM_D_ASYNC_IMAGE":                   "RELATED_IMAGE_ODH_LLM_D_ASYNC_IMAGE",
 }
 
+var maasImageParamMap = map[string]string{
+	"maas-controller-image":      "RELATED_IMAGE_ODH_MAAS_CONTROLLER_IMAGE",
+	"maas-api-image":             "RELATED_IMAGE_ODH_MAAS_API_IMAGE",
+	"payload-processing-image":   "RELATED_IMAGE_ODH_AI_GATEWAY_PAYLOAD_PROCESSING_IMAGE",
+	"maas-api-key-cleanup-image": "RELATED_IMAGE_UBI_MINIMAL_IMAGE",
+}
+
 // Module holds process-lifetime state for the aigateway controller.
 type Module struct {
 	cfg                      *moduleconfig.Config
 	version                  componentApi.SemVer
 	batchGatewayManifestInfo odhtypes.ManifestInfo
+	maasManifestInfo         odhtypes.ManifestInfo
 }
 
 // NewModule creates a Module with one-shot computed state.
@@ -71,15 +80,26 @@ func NewModule(cfg *moduleconfig.Config) (*Module, error) {
 		return nil, fmt.Errorf("failed to update images on path %s: %w", batchMI, err)
 	}
 
+	maasMI := odhtypes.ManifestInfo{
+		Path:       cfg.ManifestsPath,
+		ContextDir: "maascontroller",
+		SourcePath: "base",
+	}
+
+	if err := odhdeploy.ApplyParams(maasMI.String(), "params.env", maasImageParamMap, nil); err != nil {
+		return nil, fmt.Errorf("failed to update images on path %s: %w", maasMI, err)
+	}
+
 	return &Module{
 		cfg:                      cfg,
 		version:                  v,
 		batchGatewayManifestInfo: batchMI,
+		maasManifestInfo:         maasMI,
 	}, nil
 }
 
 // initialize conditionally includes batch-gateway manifests based on CRD spec.
-func (m *Module) initialize(_ context.Context, rr *odhtypes.ReconciliationRequest) error {
+func (m *Module) initialize(ctx context.Context, rr *odhtypes.ReconciliationRequest) error {
 	obj, ok := rr.Instance.(*componentApi.AIGateway)
 	if !ok {
 		return fmt.Errorf("instance is not an AIGateway")
@@ -98,16 +118,46 @@ func (m *Module) initialize(_ context.Context, rr *odhtypes.ReconciliationReques
 		}
 	}
 
-	// TODO: add for maas
+	if obj.Spec.ModelsAsAService.ManagementState == managedState {
+		rr.Manifests = append(rr.Manifests, m.maasManifestInfo)
+
+		if rr.Client == nil {
+			return fmt.Errorf("reconciliation client is nil")
+		}
+
+		monitoringNamespace, err := cluster.MonitoringNamespace(ctx, rr.Client)
+		if err != nil {
+			// DSCI (DSCInitialization) is OpenShift-specific and may not exist in Kind clusters
+			// or standalone deployments. When DSCI is unavailable, we use the default value
+			// already present in params.env. This ensures MaaS deployment succeeds on all
+			// platform types.
+			monitoringNamespace = ""
+		}
+
+		params := map[string]string{
+			"namespace": m.cfg.ApplicationsNamespace,
+		}
+		if monitoringNamespace != "" {
+			params["monitoring-namespace"] = monitoringNamespace
+		}
+
+		if err := odhdeploy.ApplyParams(
+			m.maasManifestInfo.String(),
+			"params.env",
+			nil,
+			params,
+		); err != nil {
+			return fmt.Errorf("failed to update maas params.env: %w", err)
+		}
+	}
 
 	return nil
 }
 
 // anySubModuleManaged reports whether at least one AIGateway sub-module is set to Managed.
 func anySubModuleManaged(obj *componentApi.AIGateway) bool {
-	return obj.Spec.BatchGateway.ManagementState == managedState
-	// TODO: add maas once it lands, e.g.:
-	//   || obj.Spec.MaaS.ManagementState == managedState
+	return obj.Spec.BatchGateway.ManagementState == managedState ||
+		obj.Spec.ModelsAsAService.ManagementState == managedState
 }
 
 // force to set the DeploymentsAvailable condition to Info level from Error

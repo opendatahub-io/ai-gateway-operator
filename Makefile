@@ -77,7 +77,7 @@ test: manifests generate fmt vet ## Run unit tests.
 
 .PHONY: test-integration-run
 test-integration-run: ## Run integration tests only (cluster must be prepared).
-	INTEGRATION_TEST_NAMESPACE="$(INTEGRATION_TEST_NAMESPACE)" go test -ldflags "$(LDFLAGS)" ./test/integration/ -tags=integration -v -timeout 5m -failfast
+	INTEGRATION_TEST_NAMESPACE="$(INTEGRATION_TEST_NAMESPACE)" go test -ldflags "$(LDFLAGS)" ./test/integration/ -tags=integration -v -timeout 10m -failfast
 
 .PHONY: prepare-integration
 prepare-integration: manifests generate ## Clean cluster state and install CRDs for integration tests.
@@ -89,7 +89,7 @@ test-integration: prepare-integration test-integration-run ## Run integration te
 
 .PHONY: test-e2e-run
 test-e2e-run: ## Run e2e tests only (operator must already be deployed).
-	OPERATOR_NAMESPACE="$(OPERATOR_NAMESPACE)" go test -ldflags "$(LDFLAGS)" ./test/e2e/ -tags=e2e -v -timeout 5m -failfast
+	OPERATOR_NAMESPACE="$(OPERATOR_NAMESPACE)" go test -ldflags "$(LDFLAGS)" ./test/e2e/ -tags=e2e -v -timeout 10m -failfast
 
 .PHONY: test-e2e
 test-e2e: cleanup-e2e deploy test-e2e-run ## Run e2e tests (cleans cluster, deploys operator, then tests).
@@ -132,7 +132,7 @@ build-bin: ## Build manager binary only (for Containerfile; run container-prep o
 		go build -ldflags "$(LDFLAGS)" -o "$(BIN_DIR)/$(BIN_NAME)" cmd/main.go
 
 .PHONY: container-prep
-container-prep: manifests generate ## On host: regenerate code and fetch manifests before container-build.
+container-prep: manifests generate get-manifests ## On host: regenerate code and fetch manifests before container-build.
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.

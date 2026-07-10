@@ -37,6 +37,7 @@ import (
 	"github.com/opendatahub-io/ai-gateway-operator/internal/controller/aigateway"
 	libcache "github.com/opendatahub-io/ai-gateway-operator/pkg/cache"
 	moduleconfig "github.com/opendatahub-io/ai-gateway-operator/pkg/config"
+	dsciv2 "github.com/opendatahub-io/opendatahub-operator/v2/api/dscinitialization/v2"
 	"github.com/opendatahub-io/opendatahub-operator/v2/pkg/cluster"
 	odhmanager "github.com/opendatahub-io/opendatahub-operator/v2/pkg/manager"
 )
@@ -52,6 +53,7 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(apiextensionsv1.AddToScheme(scheme))
 	utilruntime.Must(componentsv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(dsciv2.AddToScheme(scheme))
 }
 
 // NewCommand returns the cobra command for the operator subcommand.

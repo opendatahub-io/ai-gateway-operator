@@ -41,11 +41,13 @@ import (
 
 	componentsv1alpha1 "github.com/opendatahub-io/ai-gateway-operator/api/components/v1alpha1"
 	"github.com/opendatahub-io/ai-gateway-operator/test/support"
+	dsciv2 "github.com/opendatahub-io/opendatahub-operator/v2/api/dscinitialization/v2"
 )
 
 const (
-	timeout  = 90 * time.Second
-	interval = 2 * time.Second
+	timeout      = 90 * time.Second
+	setupTimeout = 5 * time.Minute // for TestMain polls: allows image pulls and slow reconciles
+	interval     = 2 * time.Second
 
 	labelPartOf            = "platform.opendatahub.io/part-of"
 	annotationInstanceName = "platform.opendatahub.io/instance.name"
@@ -66,19 +68,34 @@ var (
 	module            *componentsv1alpha1.AIGateway
 	operatorNamespace string
 
-	moduleSpecFns []func(*componentsv1alpha1.AIGatewaySpec)
+	moduleSpecFns    []func(*componentsv1alpha1.AIGatewaySpec)
+	moduleSetupFns   []func(ctx context.Context, k8sClient client.Client, ns string) error
+	moduleCleanupFns []func(ctx context.Context, k8sClient client.Client, ns string)
 )
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(testScheme))
 	utilruntime.Must(apiextensionsv1.AddToScheme(testScheme))
 	utilruntime.Must(componentsv1alpha1.AddToScheme(testScheme))
+	utilruntime.Must(dsciv2.AddToScheme(testScheme))
 }
 
 // registerModuleSpec lets each component test file contribute its spec
 // fields via init(), so adding a new component never touches existing files.
 func registerModuleSpec(fn func(*componentsv1alpha1.AIGatewaySpec)) {
 	moduleSpecFns = append(moduleSpecFns, fn)
+}
+
+// registerModuleSetup lets each component test file register prerequisites
+// that must exist before the AIGateway CR is created (e.g. CRDs, secrets).
+func registerModuleSetup(fn func(ctx context.Context, k8sClient client.Client, ns string) error) {
+	moduleSetupFns = append(moduleSetupFns, fn)
+}
+
+// registerModuleCleanup lets each component test file register best-effort
+// cleanup functions run after tests complete (e.g. remove stub CRDs).
+func registerModuleCleanup(fn func(ctx context.Context, k8sClient client.Client, ns string)) {
+	moduleCleanupFns = append(moduleCleanupFns, fn)
 }
 
 func TestMain(m *testing.M) {
@@ -105,7 +122,7 @@ func runTestMain(m *testing.M) int {
 
 	k = k8sm.New(k8sClient, testScheme)
 
-	if err := pollFor(ctx, "operator deployment ready", func() (bool, error) {
+	if err := pollFor(ctx, "operator deployment ready", timeout, func() (bool, error) {
 		deploy := &appsv1.Deployment{}
 		if err := k8sClient.Get(ctx, client.ObjectKey{
 			Name: "ai-gateway-operator", Namespace: operatorNamespace,
@@ -127,11 +144,21 @@ func runTestMain(m *testing.M) int {
 	}
 
 	_ = k8sClient.Delete(ctx, module)
-	if err := pollFor(ctx, "module CR deleted", func() (bool, error) {
+	if err := pollFor(ctx, "module CR deleted", timeout, func() (bool, error) {
 		err := k8sClient.Get(ctx, client.ObjectKeyFromObject(module), module.DeepCopy())
 		return err != nil, nil
 	}); err != nil {
 		return 1
+	}
+
+	// Run module-specific setup before the AIGateway CR is created.
+	// Each component test registers prerequisites (CRDs, secrets, stubs)
+	// that must exist before the reconciler's deploy action runs.
+	for _, fn := range moduleSetupFns {
+		if err := fn(ctx, k8sClient, operatorNamespace); err != nil {
+			fmt.Fprintf(os.Stderr, "Module setup failed: %v\n", err)
+			return 1
+		}
 	}
 
 	module.ResourceVersion = ""
@@ -141,7 +168,7 @@ func runTestMain(m *testing.M) int {
 		return 1
 	}
 
-	if err := pollFor(ctx, "module CR ready", func() (bool, error) {
+	if err := pollFor(ctx, "module CR ready", setupTimeout, func() (bool, error) {
 		fresh := module.DeepCopy()
 		if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(module), fresh); err != nil {
 			return false, nil
@@ -161,11 +188,15 @@ func runTestMain(m *testing.M) int {
 
 	_ = k8sClient.Delete(ctx, module)
 
+	for _, fn := range moduleCleanupFns {
+		fn(ctx, k8sClient, operatorNamespace)
+	}
+
 	return code
 }
 
-func pollFor(ctx context.Context, desc string, fn func() (bool, error)) error {
-	deadline := time.Now().Add(timeout)
+func pollFor(ctx context.Context, desc string, d time.Duration, fn func() (bool, error)) error {
+	deadline := time.Now().Add(d)
 	for time.Now().Before(deadline) {
 		done, err := fn()
 		if err != nil {
