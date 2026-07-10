@@ -42,6 +42,11 @@ const (
 
 // deriveInfrastructureNamespace derives the infrastructure namespace from the application namespace.
 // This matches the logic in maas-controller's pkg/config/config.go and deploy.sh.
+//
+// Infrastructure namespace separation is enabled only for standard ODH/RHOAI installations.
+// For custom deployments in other namespaces, components remain colocated (no separation).
+// This default behavior is intentional - separating into a different namespace without
+// explicit configuration could break non-standard deployments.
 func deriveInfrastructureNamespace(applicationNamespace string) string {
 	switch applicationNamespace {
 	case "redhat-ods-applications":
@@ -49,6 +54,7 @@ func deriveInfrastructureNamespace(applicationNamespace string) string {
 	case "opendatahub":
 		return "odh-ai-gateway-infra"
 	default:
+		// No separation for custom namespaces - keep components colocated
 		return applicationNamespace
 	}
 }
