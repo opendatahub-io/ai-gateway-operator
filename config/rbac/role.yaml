@@ -8,6 +8,7 @@ rules:
   - ""
   resources:
   - configmaps
+  - namespaces
   - serviceaccounts
   - services
   verbs:
@@ -26,18 +27,6 @@ rules:
   verbs:
   - get
   - list
-  - watch
-- apiGroups:
-  - ""
-  resources:
-  - namespaces
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
   - watch
 - apiGroups:
   - ""
@@ -388,7 +377,6 @@ rules:
   - maasmodelrefs/finalizers
   - maassubscriptions/finalizers
   - maastenantconfigs/finalizers
-  - tenants/finalizers
   verbs:
   - update
 - apiGroups:
