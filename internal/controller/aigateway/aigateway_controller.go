@@ -140,6 +140,7 @@ func NewReconciler(
 		Owns(&apiextensionsv1.CustomResourceDefinition{}).
 		Owns(&appsv1.Deployment{}, reconciler.WithPredicates(predicates.DefaultDeploymentPredicate)).
 		WithAction(m.initialize).
+		WithAction(m.ensureInfraSecretMigrationRBAC).
 		WithAction(m.upgradeIfNeeded).
 		WithAction(releases.NewAction(
 			releases.WithMetadataFilePath(func(rr *odhtypes.ReconciliationRequest) string {

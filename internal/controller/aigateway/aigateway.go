@@ -36,6 +36,20 @@ import (
 // managedState is the ManagementState value that requests a sub-module be deployed.
 const managedState = "Managed"
 
+// deriveInfrastructureNamespace maps the applications namespace to the infrastructure
+// namespace used for maas-api, postgres, and cross-namespace secret migration.
+// Mirrors the logic in models-as-a-service maas-controller/cmd/manager/main.go:deriveInfraNamespace.
+func deriveInfrastructureNamespace(appNs string) string {
+	switch appNs {
+	case "redhat-ods-applications":
+		return "redhat-ai-gateway-infra"
+	case "opendatahub":
+		return "odh-ai-gateway-infra"
+	default:
+		return appNs
+	}
+}
+
 const (
 	componentName = componentApi.AIGatewayComponentName
 )
@@ -134,8 +148,10 @@ func (m *Module) initialize(ctx context.Context, rr *odhtypes.ReconciliationRequ
 			monitoringNamespace = ""
 		}
 
+		infraNs := deriveInfrastructureNamespace(m.cfg.ApplicationsNamespace)
 		params := map[string]string{
-			"namespace": m.cfg.ApplicationsNamespace,
+			"namespace":                m.cfg.ApplicationsNamespace,
+			"infrastructure-namespace": infraNs,
 		}
 		if monitoringNamespace != "" {
 			params["monitoring-namespace"] = monitoringNamespace
