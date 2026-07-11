@@ -366,6 +366,7 @@ rules:
   - maasauthpolicies
   - maasmodelrefs
   - maassubscriptions
+  - maastenantconfigs
   - tenants
   verbs:
   - create
@@ -384,6 +385,8 @@ rules:
   - maasauthpolicies/finalizers
   - maasmodelrefs/finalizers
   - maassubscriptions/finalizers
+  - maastenantconfigs/finalizers
+  - tenants/finalizers
   verbs:
   - update
 - apiGroups:
@@ -394,6 +397,7 @@ rules:
   - maasauthpolicies/status
   - maasmodelrefs/status
   - maassubscriptions/status
+  - maastenantconfigs/status
   - tenants/status
   verbs:
   - get
