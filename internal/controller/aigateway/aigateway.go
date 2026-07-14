@@ -36,23 +36,28 @@ import (
 // managedState is the ManagementState value that requests a sub-module be deployed.
 const managedState = "Managed"
 
+const (
+	componentName = componentApi.AIGatewayComponentName
+
+	rhoaiApplicationsNS   = "redhat-ods-applications"
+	rhoaiInfrastructureNS = "redhat-ai-gateway-infra"
+	odhApplicationsNS     = "opendatahub"
+	odhInfrastructureNS   = "odh-ai-gateway-infra"
+)
+
 // deriveInfrastructureNamespace maps the applications namespace to the infrastructure
 // namespace used for maas-api, postgres, and cross-namespace secret migration.
 // Mirrors the logic in models-as-a-service maas-controller/cmd/manager/main.go:deriveInfraNamespace.
 func deriveInfrastructureNamespace(appNs string) string {
 	switch appNs {
-	case "redhat-ods-applications":
-		return "redhat-ai-gateway-infra"
-	case "opendatahub":
-		return "odh-ai-gateway-infra"
+	case rhoaiApplicationsNS:
+		return rhoaiInfrastructureNS
+	case odhApplicationsNS:
+		return odhInfrastructureNS
 	default:
 		return appNs
 	}
 }
-
-const (
-	componentName = componentApi.AIGatewayComponentName
-)
 
 var batchGatewayImageParamMap = map[string]string{
 	"LLM_D_BATCH_GATEWAY_OPERATOR_IMAGE":  "RELATED_IMAGE_ODH_LLM_D_BATCH_GATEWAY_OPERATOR_IMAGE",
