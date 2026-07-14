@@ -135,6 +135,9 @@ func ensureSecretMigrateRole(ctx context.Context, cli client.Client, owner *comp
 		return err
 	}
 
+	if err := controllerutil.SetOwnerReference(owner, existing, cli.Scheme()); err != nil {
+		return fmt.Errorf("setting owner reference: %w", err)
+	}
 	existing.Rules = desired.Rules
 	existing.Labels = desired.Labels
 	return cli.Update(ctx, existing)
@@ -176,6 +179,9 @@ func ensureSecretMigrateRoleBinding(ctx context.Context, cli client.Client, owne
 		return err
 	}
 
+	if err := controllerutil.SetOwnerReference(owner, existing, cli.Scheme()); err != nil {
+		return fmt.Errorf("setting owner reference: %w", err)
+	}
 	existing.Subjects = desired.Subjects
 	existing.Labels = desired.Labels
 	return cli.Update(ctx, existing)
