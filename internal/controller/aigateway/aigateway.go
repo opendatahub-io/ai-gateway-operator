@@ -137,7 +137,16 @@ func (m *Module) initialize(ctx context.Context, rr *odhtypes.ReconciliationRequ
 		}
 	}
 
-	if obj.Spec.ModelsAsAService.ManagementState == managedState {
+	keepMaaSInstalled := obj.Spec.ModelsAsAService.ManagementState == managedState
+	if !keepMaaSInstalled && obj.Spec.ModelsAsAService.ManagementState == removedState {
+		var err error
+		keepMaaSInstalled, err = m.shouldKeepMaaSInstalled(ctx, rr)
+		if err != nil {
+			return fmt.Errorf("determine MaaS teardown state: %w", err)
+		}
+	}
+
+	if keepMaaSInstalled {
 		rr.Manifests = append(rr.Manifests, m.maasManifestInfo)
 
 		if rr.Client == nil {
@@ -183,7 +192,7 @@ func anySubModuleManaged(obj *componentApi.AIGateway) bool {
 
 // force to set the DeploymentsAvailable condition to Info level from Error
 // this makes operator not flag AIGateway CR status to False, thus opendatahub-operator wont set ModuleStatus to False
-func (m *Module) overWriteCondition(_ context.Context, rr *odhtypes.ReconciliationRequest) error {
+func (m *Module) overWriteCondition(ctx context.Context, rr *odhtypes.ReconciliationRequest) error {
 	obj, ok := rr.Instance.(*componentApi.AIGateway)
 	if !ok {
 		return fmt.Errorf("instance is not an AIGateway")
@@ -191,6 +200,23 @@ func (m *Module) overWriteCondition(_ context.Context, rr *odhtypes.Reconciliati
 
 	if anySubModuleManaged(obj) {
 		return nil
+	}
+
+	if rr.Client != nil {
+		maasRemovalPending, err := m.maasRemovalPending(ctx, rr.Client)
+		if err != nil {
+			return fmt.Errorf("determine MaaS removal progress: %w", err)
+		}
+		if maasRemovalPending {
+			rr.Conditions.MarkFalse(
+				status.ConditionDeploymentsAvailable,
+				conditions.WithSeverity(common.ConditionSeverityInfo),
+				conditions.WithReason(status.MaaSRemovalInProgressReason),
+				conditions.WithMessage("MaaS removal is in progress; waiting for remaining resources to be deleted"),
+			)
+
+			return nil
+		}
 	}
 
 	rr.Conditions.MarkFalse(
