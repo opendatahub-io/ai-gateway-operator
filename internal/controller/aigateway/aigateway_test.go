@@ -18,10 +18,12 @@ package aigateway
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"testing"
 
 	. "github.com/onsi/gomega"
+	"github.com/opendatahub-io/opendatahub-operator/v2/api/common"
 	dsciv2 "github.com/opendatahub-io/opendatahub-operator/v2/api/dscinitialization/v2"
 	serviceApi "github.com/opendatahub-io/opendatahub-operator/v2/api/services/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
@@ -653,6 +655,11 @@ func TestReportStatus(t *testing.T) {
 	obj.Spec.BatchGateway.ManagementState = "Managed"
 	rr := newTestRR(obj)
 
+	scheme := runtime.NewScheme()
+	utilruntime.Must(corev1.AddToScheme(scheme))
+	// No ConfigMap in the fake client — simulates older platform without handshake.
+	rr.Client = fake.NewClientBuilder().WithScheme(scheme).Build()
+
 	g.Expect(m.initialize(context.Background(), rr)).To(Succeed())
 	g.Expect(m.reportStatus(context.Background(), rr)).To(Succeed())
 
@@ -661,4 +668,143 @@ func TestReportStatus(t *testing.T) {
 	g.Expect(obj.Status.Module.Platform.Version.String()).To(Equal("1.0.0"))
 	g.Expect(obj.Status.Module.Sources).To(HaveLen(1))
 	g.Expect(obj.Status.Module.Sources[0].Renderer).To(Equal(componentApi.SourceRendererKustomize))
+	// No platform ConfigMap → no platform release entry.
+	g.Expect(obj.Status.Releases).To(BeEmpty())
+}
+
+func TestReportStatus_WithPlatformConfigMap(t *testing.T) {
+	g := NewWithT(t)
+
+	m := newTestModule(t)
+	obj := newTestAIGateway()
+	// Simulate releases.NewAction having already populated module metadata.
+	obj.Status.Releases = []common.ComponentRelease{{
+		Name:    "LLM-D AI Gateway Operator",
+		Version: "v0.1.0",
+		RepoURL: "https://github.com/opendatahub-io/ai-gateway-operator",
+	}}
+	rr := newTestRR(obj)
+
+	scheme := runtime.NewScheme()
+	utilruntime.Must(corev1.AddToScheme(scheme))
+	utilruntime.Must(componentApi.AddToScheme(scheme))
+
+	platformCM := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      platformConfigName,
+			Namespace: "test-ns",
+		},
+		Data: map[string]string{
+			platformVersionKey: "2.20.0",
+		},
+	}
+	rr.Client = fake.NewClientBuilder().WithScheme(scheme).WithObjects(platformCM).Build()
+
+	g.Expect(m.reportStatus(context.Background(), rr)).To(Succeed())
+
+	g.Expect(obj.Status.Releases).To(HaveLen(2))
+
+	releasesByName := make(map[string]common.ComponentRelease, len(obj.Status.Releases))
+	for _, r := range obj.Status.Releases {
+		releasesByName[r.Name] = r
+	}
+
+	moduleRelease, ok := releasesByName["LLM-D AI Gateway Operator"]
+	g.Expect(ok).To(BeTrue())
+	g.Expect(moduleRelease.Version).To(Equal("v0.1.0"))
+
+	platformRelease, ok := releasesByName[platformReleaseName]
+	g.Expect(ok).To(BeTrue())
+	g.Expect(platformRelease.Version).To(Equal("2.20.0"))
+}
+
+func TestReportStatus_NoPlatformConfigMap(t *testing.T) {
+	g := NewWithT(t)
+
+	m := newTestModule(t)
+	obj := newTestAIGateway()
+	obj.Status.Releases = []common.ComponentRelease{{
+		Name:    "LLM-D AI Gateway Operator",
+		Version: "v0.1.0",
+	}}
+	rr := newTestRR(obj)
+
+	scheme := runtime.NewScheme()
+	utilruntime.Must(corev1.AddToScheme(scheme))
+	rr.Client = fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	g.Expect(m.reportStatus(context.Background(), rr)).To(Succeed())
+
+	// Module release preserved; platform entry omitted when ConfigMap is absent.
+	g.Expect(obj.Status.Releases).To(HaveLen(1))
+	g.Expect(obj.Status.Releases[0].Name).To(Equal("LLM-D AI Gateway Operator"))
+}
+
+func TestSetPlatformRelease_UpdatesExisting(t *testing.T) {
+	g := NewWithT(t)
+
+	obj := newTestAIGateway()
+	obj.Status.Releases = []common.ComponentRelease{
+		{Name: "LLM-D AI Gateway Operator", Version: "v0.1.0"},
+		{Name: platformReleaseName, Version: "2.19.0"},
+	}
+
+	setPlatformRelease(obj, "2.20.0")
+
+	g.Expect(obj.Status.Releases).To(HaveLen(2))
+	g.Expect(obj.Status.Releases[1].Name).To(Equal(platformReleaseName))
+	g.Expect(obj.Status.Releases[1].Version).To(Equal("2.20.0"))
+}
+
+func TestWithPreservedPlatformRelease(t *testing.T) {
+	g := NewWithT(t)
+
+	obj := newTestAIGateway()
+	obj.Status.Releases = []common.ComponentRelease{
+		{Name: "LLM-D AI Gateway Operator", Version: "v0.1.0"},
+		{Name: platformReleaseName, Version: "2.19.0"},
+	}
+	rr := newTestRR(obj)
+
+	inner := func(_ context.Context, rr *odhtypes.ReconciliationRequest) error {
+		inst := rr.Instance.(*componentApi.AIGateway)
+		// Simulate releases.NewAction replacing the full list with metadata only.
+		inst.SetReleaseStatus([]common.ComponentRelease{{
+			Name:    "LLM-D AI Gateway Operator",
+			Version: "v0.1.0",
+		}})
+		return nil
+	}
+
+	g.Expect(withPreservedPlatformRelease(inner)(context.Background(), rr)).To(Succeed())
+
+	g.Expect(obj.Status.Releases).To(HaveLen(2))
+	g.Expect(getPlatformRelease(obj).Version).To(Equal("2.19.0"))
+}
+
+func TestWithPreservedPlatformRelease_OnError(t *testing.T) {
+	g := NewWithT(t)
+
+	obj := newTestAIGateway()
+	obj.Status.Releases = []common.ComponentRelease{
+		{Name: "LLM-D AI Gateway Operator", Version: "v0.1.0"},
+		{Name: platformReleaseName, Version: "2.19.0"},
+	}
+	rr := newTestRR(obj)
+
+	inner := func(_ context.Context, rr *odhtypes.ReconciliationRequest) error {
+		inst := rr.Instance.(*componentApi.AIGateway)
+		// Simulate releases.NewAction partially replacing the list before failing.
+		inst.SetReleaseStatus([]common.ComponentRelease{{
+			Name:    "LLM-D AI Gateway Operator",
+			Version: "v0.1.0",
+		}})
+		return fmt.Errorf("simulated failure")
+	}
+
+	err := withPreservedPlatformRelease(inner)(context.Background(), rr)
+	g.Expect(err).To(HaveOccurred())
+
+	// Platform entry must be preserved even when inner fails.
+	g.Expect(getPlatformRelease(obj).Version).To(Equal("2.19.0"))
 }

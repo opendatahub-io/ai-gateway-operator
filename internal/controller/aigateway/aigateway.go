@@ -21,6 +21,11 @@ import (
 	"fmt"
 	"sort"
 
+	corev1 "k8s.io/api/core/v1"
+	k8serr "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
+
 	"github.com/opendatahub-io/opendatahub-operator/v2/api/common"
 	"github.com/opendatahub-io/opendatahub-operator/v2/pkg/cluster"
 	"github.com/opendatahub-io/opendatahub-operator/v2/pkg/controller/conditions"
@@ -43,6 +48,14 @@ const (
 	rhoaiInfrastructureNS = "redhat-ai-gateway-infra"
 	odhApplicationsNS     = "opendatahub"
 	odhInfrastructureNS   = "odh-ai-gateway-infra"
+
+	// Platform upgrade handshake: the platform operator maintains
+	// odh-<modulename>-config with data.platformVersion. After upgrade work
+	// completes, the module echoes that version into status.releases as
+	// name: "platform" so the platform can detect version alignment.
+	platformConfigName  = "odh-" + componentApi.AIGatewayComponentName + "-config"
+	platformVersionKey  = "platformVersion"
+	platformReleaseName = "platform"
 )
 
 // deriveInfrastructureNamespace maps the applications namespace to the infrastructure
@@ -230,8 +243,9 @@ func (m *Module) overWriteCondition(ctx context.Context, rr *odhtypes.Reconcilia
 }
 
 // reportStatus populates the module status with version, platform,
-// and source information.
-func (m *Module) reportStatus(_ context.Context, rr *odhtypes.ReconciliationRequest) error {
+// and source information. When the platform config ConfigMap is present,
+// it also records the platform version in status.releases (upgrade handshake).
+func (m *Module) reportStatus(ctx context.Context, rr *odhtypes.ReconciliationRequest) error {
 	obj, ok := rr.Instance.(*componentApi.AIGateway)
 	if !ok {
 		return fmt.Errorf("instance is not an AIGateway")
@@ -279,5 +293,90 @@ func (m *Module) reportStatus(_ context.Context, rr *odhtypes.ReconciliationRequ
 
 	obj.Status.Module.Sources = sources
 
+	// Upgrade handshake: echo platformVersion into status.releases only after
+	// earlier actions (including upgradeIfNeeded) have succeeded. When the
+	// ConfigMap is absent (older platforms), skip the platform entry.
+	if platformVersion := m.getPlatformVersion(ctx, rr); platformVersion != "" {
+		setPlatformRelease(obj, platformVersion)
+	}
+
 	return nil
+}
+
+// getPlatformVersion reads data.platformVersion from the platform-managed
+// odh-aigateway-config ConfigMap. Returns "" when the ConfigMap is missing
+// or unreadable so older platforms remain compatible.
+func (m *Module) getPlatformVersion(ctx context.Context, rr *odhtypes.ReconciliationRequest) string {
+	log := logf.FromContext(ctx)
+
+	cm := &corev1.ConfigMap{}
+	if err := rr.Client.Get(ctx, types.NamespacedName{
+		Namespace: m.cfg.ApplicationsNamespace,
+		Name:      platformConfigName,
+	}, cm); err != nil {
+		if !k8serr.IsNotFound(err) {
+			log.Error(err, "Failed to read platform config ConfigMap", "name", platformConfigName)
+		}
+		return ""
+	}
+
+	v := cm.Data[platformVersionKey]
+	if v == "" {
+		log.V(1).Info("Platform config ConfigMap has no platformVersion key", "name", platformConfigName)
+	}
+
+	return v
+}
+
+func getPlatformRelease(instance *componentApi.AIGateway) common.ComponentRelease {
+	for _, r := range instance.Status.Releases {
+		if r.Name == platformReleaseName {
+			return r
+		}
+	}
+	return common.ComponentRelease{}
+}
+
+func setPlatformRelease(instance *componentApi.AIGateway, platformVersion string) {
+	for i, r := range instance.Status.Releases {
+		if r.Name == platformReleaseName {
+			instance.Status.Releases[i].Version = platformVersion
+			return
+		}
+	}
+	instance.Status.Releases = append(instance.Status.Releases, common.ComponentRelease{
+		Name:    platformReleaseName,
+		Version: platformVersion,
+	})
+}
+
+// withPreservedPlatformRelease wraps the metadata releases action so a failed
+// reconcile cannot wipe the existing platform handshake entry. The reconciler
+// always patches status even when an action fails; releases.NewAction replaces
+// the entire releases list, so we re-attach the previous platform version until
+// reportStatus advances it after a successful reconcile.
+func withPreservedPlatformRelease(
+	inner func(context.Context, *odhtypes.ReconciliationRequest) error,
+) func(context.Context, *odhtypes.ReconciliationRequest) error {
+	return func(ctx context.Context, rr *odhtypes.ReconciliationRequest) error {
+		obj, ok := rr.Instance.(*componentApi.AIGateway)
+		if !ok {
+			return fmt.Errorf("instance is not an AIGateway")
+		}
+
+		prev := getPlatformRelease(obj)
+
+		err := inner(ctx, rr)
+
+		// Always re-attach the previous platform version — whether inner
+		// succeeded or failed. releases.NewAction replaces the full releases
+		// list, so without this the platform handshake entry is wiped on
+		// every reconcile. reportStatus advances the version only after all
+		// actions complete successfully.
+		if prev.Version != "" {
+			setPlatformRelease(obj, prev.Version)
+		}
+
+		return err
+	}
 }

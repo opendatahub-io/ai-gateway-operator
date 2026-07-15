@@ -152,11 +152,11 @@ func NewReconciler(
 		WithAction(m.initialize).
 		WithAction(m.ensureInfraSecretMigrationRBAC).
 		WithAction(m.upgradeIfNeeded).
-		WithAction(releases.NewAction(
+		WithAction(withPreservedPlatformRelease(releases.NewAction(
 			releases.WithMetadataFilePath(func(rr *odhtypes.ReconciliationRequest) string {
 				return filepath.Join(rr.ManifestsBasePath, "ai-gateway-operator", releases.ComponentMetadataFilename)
 			}),
-		)).
+		))).
 		WithAction(kustomize.NewAction(
 			kustomize.WithLabel(labels.ODH.Component(componentName), labels.True),
 			kustomize.WithLabel(labels.K8SCommon.PartOf, componentName),
