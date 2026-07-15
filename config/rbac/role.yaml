@@ -155,6 +155,14 @@ rules:
   - patch
   - watch
 - apiGroups:
+  - batch
+  resources:
+  - jobs
+  verbs:
+  - create
+  - delete
+  - get
+- apiGroups:
   - batch.llm-d.ai
   resources:
   - llmbatchgateways
