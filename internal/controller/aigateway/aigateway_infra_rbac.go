@@ -79,6 +79,12 @@ func (m *Module) ensureInfraSecretMigrationRBAC(ctx context.Context, rr *odhtype
 }
 
 func ensureNamespace(ctx context.Context, cli client.Client, name string) error {
+	requiredLabels := map[string]string{
+		"app.kubernetes.io/part-of":          "ai-gateway",
+		"app.kubernetes.io/managed-by":       "ai-gateway-operator",
+		"opendatahub.io/generated-namespace": "true",
+	}
+
 	ns := &corev1.Namespace{}
 	if err := cli.Get(ctx, types.NamespacedName{Name: name}, ns); err != nil {
 		if !k8serr.IsNotFound(err) {
@@ -86,14 +92,26 @@ func ensureNamespace(ctx context.Context, cli client.Client, name string) error 
 		}
 		ns = &corev1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: name,
-				Labels: map[string]string{
-					"app.kubernetes.io/part-of":    "ai-gateway",
-					"app.kubernetes.io/managed-by": "ai-gateway-operator",
-				},
+				Name:   name,
+				Labels: requiredLabels,
 			},
 		}
 		return cli.Create(ctx, ns)
+	}
+
+	// Ensure required labels are present on pre-existing namespace (upgrade path).
+	needsUpdate := false
+	if ns.Labels == nil {
+		ns.Labels = make(map[string]string)
+	}
+	for k, v := range requiredLabels {
+		if ns.Labels[k] != v {
+			ns.Labels[k] = v
+			needsUpdate = true
+		}
+	}
+	if needsUpdate {
+		return cli.Update(ctx, ns)
 	}
 	return nil
 }
