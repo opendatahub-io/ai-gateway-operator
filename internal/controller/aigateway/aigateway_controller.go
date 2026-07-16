@@ -73,7 +73,7 @@ import (
 // MaaS controller deployment - permissions to deploy vendored maascontroller manifests
 // (fetched by make get-manifests; do not edit config/manifests/maascontroller/ RBAC here).
 // +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=create;list;watch
-// +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,resourceNames=tenants.maas.opendatahub.io;aitenants.maas.opendatahub.io;configs.maas.opendatahub.io;maasmodelrefs.maas.opendatahub.io;maasauthpolicies.maas.opendatahub.io;maassubscriptions.maas.opendatahub.io;maastenantconfigs.maas.opendatahub.io;externalmodels.maas.opendatahub.io;externalmodels.inference.opendatahub.io;externalproviders.inference.opendatahub.io;modelsasservices.components.platform.opendatahub.io,verbs=get;update;patch;delete
+// +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,resourceNames=tenants.maas.opendatahub.io;aitenants.maas.opendatahub.io;configs.maas.opendatahub.io;maasmodelrefs.maas.opendatahub.io;maasauthpolicies.maas.opendatahub.io;maassubscriptions.maas.opendatahub.io;maastenantconfigs.maas.opendatahub.io;externalmodels.maas.opendatahub.io;externalmodels.inference.opendatahub.io;externalproviders.inference.opendatahub.io;modelsasservices.components.platform.opendatahub.io,verbs=get;update;patch
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterrolebindings,verbs=create;list;watch
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterrolebindings,resourceNames=maas-controller-cluster-config-rolebinding;maas-controller-rolebinding,verbs=get;update;patch;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,verbs=create;list;watch
@@ -131,7 +131,7 @@ func NewReconciler(
 		return err
 	}
 
-	builder := reconciler.ReconcilerFor(mgr, &componentApi.AIGateway{}).
+	r, err := reconciler.ReconcilerFor(mgr, &componentApi.AIGateway{}).
 		Owns(&corev1.ConfigMap{}).
 		Owns(&rbacv1.ClusterRoleBinding{}).
 		Owns(&rbacv1.ClusterRole{}).
@@ -141,14 +141,7 @@ func NewReconciler(
 		Owns(&corev1.Service{}).
 		Owns(&apiextensionsv1.CustomResourceDefinition{}).
 		Owns(&admissionregistrationv1.ValidatingWebhookConfiguration{}).
-		Owns(&appsv1.Deployment{}, reconciler.WithPredicates(predicates.DefaultDeploymentPredicate))
-
-	r, err := builder.
-		Watches(
-			&apiextensionsv1.CustomResourceDefinition{},
-			reconciler.WithEventMapper(watchDefaultAIGateway),
-			reconciler.WithPredicates(maasCRDWatchPredicate()),
-		).
+		Owns(&appsv1.Deployment{}, reconciler.WithPredicates(predicates.DefaultDeploymentPredicate)).
 		WithAction(m.initialize).
 		WithAction(m.ensureInfraSecretMigrationRBAC).
 		WithAction(m.upgradeIfNeeded).
@@ -166,7 +159,6 @@ func NewReconciler(
 			deploy.WithCache(),
 			deploy.WithApplyOrder(),
 		)).
-		WithAction(m.cleanupCRD).
 		WithAction(deployments.NewAction()).
 		WithAction(m.overWriteCondition).
 		WithAction(m.reportStatus).

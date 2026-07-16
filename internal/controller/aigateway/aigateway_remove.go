@@ -5,12 +5,8 @@ import (
 	"fmt"
 
 	appsv1 "k8s.io/api/apps/v1"
-	extv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	ctrlpredicate "sigs.k8s.io/controller-runtime/pkg/predicate"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	componentApi "github.com/opendatahub-io/ai-gateway-operator/api/components/v1alpha1"
 	"github.com/opendatahub-io/opendatahub-operator/v2/pkg/cluster/gvk"
@@ -25,8 +21,6 @@ const (
 	maasTeardownCompletedKey     = "maas.opendatahub.io/teardown-completed"
 	maasCRDComponentLabelKey     = "app.kubernetes.io/component"
 	maasCRDComponentLabelValue   = "models-as-a-service"
-	maasCRDNameLabelKey          = "app.kubernetes.io/name"
-	maasCRDNameLabelValue        = "maas-controller"
 )
 
 // shouldKeepMaaSInstalled reports whether the vendored maas-controller bundle
@@ -84,57 +78,6 @@ func (m *Module) annotateMaaSRequestedTeardown(_ context.Context, rr *odhtypes.R
 	return nil
 }
 
-// cleanupCRD is the pipeline-facing entry point for removing component-owned
-// CRDs once that component's runtime cleanup has finished. Currently this only
-// covers the vendored MaaS CRDs; see cleanupMaaSCRD.
-func (m *Module) cleanupCRD(ctx context.Context, rr *odhtypes.ReconciliationRequest) error {
-	return m.cleanupMaaSCRD(ctx, rr)
-}
-
-// cleanupMaaSCRD waits for maas-controller to report (via TeardownCompletedAnnotation
-// on its own Deployment) that its self-teardown is done, then performs the final
-// uninstall steps still owned by AI Gateway: waiting for the Deployment itself to be
-// garbage-collected (it was excluded from this pass's render by shouldKeepMaaSInstalled
-// once completion was observed) and deleting the vendored MaaS CRDs.
-func (m *Module) cleanupMaaSCRD(ctx context.Context, rr *odhtypes.ReconciliationRequest) error {
-	obj, ok := rr.Instance.(*componentApi.AIGateway)
-	if !ok {
-		return fmt.Errorf("instance is not an AIGateway")
-	}
-	if obj.Spec.ModelsAsAService.ManagementState != removedState {
-		return nil
-	}
-	if rr.Client == nil {
-		return fmt.Errorf("reconciliation client is nil")
-	}
-
-	completed, err := m.maasTeardownCompleted(ctx, rr.Client)
-	if err != nil {
-		return err
-	}
-	if !completed {
-		return nil
-	}
-
-	controllerPresent, err := m.maasControllerDeploymentExists(ctx, rr.Client)
-	if err != nil {
-		return err
-	}
-	if controllerPresent {
-		return nil
-	}
-
-	crdsPending, err := m.ensureMaaSCRDsDeleted(ctx, rr.Client)
-	if err != nil {
-		return err
-	}
-	if crdsPending {
-		return nil
-	}
-
-	return nil
-}
-
 func (m *Module) maasRemovalPending(ctx context.Context, cli client.Client) (bool, error) {
 	if cli == nil {
 		return false, nil
@@ -148,15 +91,7 @@ func (m *Module) maasRemovalPending(ctx context.Context, cli client.Client) (boo
 		return true, nil
 	}
 
-	controllerPresent, err := m.maasControllerDeploymentExists(ctx, cli)
-	if err != nil {
-		return false, err
-	}
-	if controllerPresent {
-		return true, nil
-	}
-
-	return m.maasCRDsRemain(ctx, cli)
+	return m.maasControllerDeploymentExists(ctx, cli)
 }
 
 func (m *Module) maasControllerDeploymentExists(ctx context.Context, cli client.Client) (bool, error) {
@@ -220,57 +155,3 @@ func (m *Module) maasAwareGCPredicate(rr *odhtypes.ReconciliationRequest, obj un
 	return m.maasTeardownCompleted(context.Background(), rr.Client)
 }
 
-func (m *Module) maasCRDsRemain(ctx context.Context, cli client.Client) (bool, error) {
-	crds, err := m.listMaaSCRDs(ctx, cli)
-	if err != nil {
-		return false, err
-	}
-	return len(crds.Items) > 0, nil
-}
-
-func (m *Module) ensureMaaSCRDsDeleted(ctx context.Context, cli client.Client) (bool, error) {
-	crds, err := m.listMaaSCRDs(ctx, cli)
-	if err != nil {
-		return false, err
-	}
-
-	pending := false
-	for i := range crds.Items {
-		crd := &crds.Items[i]
-		pending = true
-		if !crd.GetDeletionTimestamp().IsZero() {
-			continue
-		}
-		if err := cli.Delete(ctx, crd); client.IgnoreNotFound(err) != nil {
-			return false, fmt.Errorf("delete MaaS CRD %q: %w", crd.GetName(), err)
-		}
-	}
-
-	return pending, nil
-}
-
-func (m *Module) listMaaSCRDs(ctx context.Context, cli client.Client) (*extv1.CustomResourceDefinitionList, error) {
-	list := &extv1.CustomResourceDefinitionList{}
-	if err := cli.List(ctx, list, client.MatchingLabels{
-		maasCRDComponentLabelKey: maasCRDComponentLabelValue,
-		maasCRDNameLabelKey:      maasCRDNameLabelValue,
-	}); err != nil {
-		return nil, fmt.Errorf("list MaaS CRDs: %w", err)
-	}
-	return list, nil
-}
-
-func watchDefaultAIGateway(_ context.Context, _ client.Object) []reconcile.Request {
-	return []reconcile.Request{{
-		NamespacedName: types.NamespacedName{Name: componentApi.AIGatewayInstanceName},
-	}}
-}
-
-func maasCRDWatchPredicate() ctrlpredicate.Predicate {
-	return ctrlpredicate.NewPredicateFuncs(func(obj client.Object) bool {
-		labels := obj.GetLabels()
-		return labels != nil &&
-			labels[maasCRDComponentLabelKey] == maasCRDComponentLabelValue &&
-			labels[maasCRDNameLabelKey] == maasCRDNameLabelValue
-	})
-}

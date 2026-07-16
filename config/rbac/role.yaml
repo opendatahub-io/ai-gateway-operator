@@ -146,7 +146,6 @@ rules:
   - batch
   resources:
   - cronjobs
-  - jobs
   verbs:
   - create
   - delete
@@ -311,10 +310,8 @@ rules:
   - externalproviders
   verbs:
   - create
-  - delete
   - get
   - list
-  - patch
   - update
   - watch
 - apiGroups:
@@ -362,13 +359,10 @@ rules:
   - maas.opendatahub.io
   resources:
   - aitenants
-  - configs
-  - externalmodels
   - maasauthpolicies
   - maasmodelrefs
   - maassubscriptions
   - maastenantconfigs
-  - tenants
   verbs:
   - create
   - delete
@@ -386,7 +380,6 @@ rules:
   - maasauthpolicies/finalizers
   - maasmodelrefs/finalizers
   - maassubscriptions/finalizers
-  - maastenantconfigs/finalizers
   verbs:
   - update
 - apiGroups:
@@ -403,6 +396,25 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - maas.opendatahub.io
+  resources:
+  - configs
+  - externalmodels
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - maas.opendatahub.io
+  resources:
+  - tenants
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
 - apiGroups:
   - monitoring.coreos.com
   resources:

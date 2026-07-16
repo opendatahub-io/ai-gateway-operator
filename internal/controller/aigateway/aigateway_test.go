@@ -247,52 +247,30 @@ func TestInitializeManagedMaaS(t *testing.T) {
 	g.Expect(rr.Manifests[0].ContextDir).To(Equal("maascontroller"))
 }
 
-func TestCleanupMaaSCRDWaitsWhileControllerHasNotCompletedTeardown(t *testing.T) {
+func TestMaaSRemovalPendingWaitsWhileControllerHasNotCompletedTeardown(t *testing.T) {
 	g := NewWithT(t)
 
 	m := newTestModule(t)
-	obj := newTestAIGateway()
-	obj.Spec.ModelsAsAService.ManagementState = removedState
-	rr := newTestRR(obj)
-
 	dep := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      maasControllerDeploymentName,
 			Namespace: m.cfg.ApplicationsNamespace,
 		},
 	}
-	crd := &extv1.CustomResourceDefinition{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "aitenants.maas.opendatahub.io",
-			Labels: map[string]string{
-				maasCRDComponentLabelKey: maasCRDComponentLabelValue,
-				maasCRDNameLabelKey:      maasCRDNameLabelValue,
-			},
-		},
-	}
-	rr.Client = fake.NewClientBuilder().
+	cli := fake.NewClientBuilder().
 		WithScheme(newTestScheme(t)).
-		WithObjects(dep, crd).
+		WithObjects(dep).
 		Build()
 
-	g.Expect(m.cleanupMaaSCRD(context.Background(), rr)).To(Succeed())
-
-	// Neither should be touched: maas-controller has not reported completion yet.
-	g.Expect(rr.Client.Get(context.Background(), types.NamespacedName{
-		Namespace: m.cfg.ApplicationsNamespace,
-		Name:      maasControllerDeploymentName,
-	}, &appsv1.Deployment{})).To(Succeed())
-	g.Expect(rr.Client.Get(context.Background(), types.NamespacedName{Name: "aitenants.maas.opendatahub.io"}, &extv1.CustomResourceDefinition{})).To(Succeed())
+	pending, err := m.maasRemovalPending(context.Background(), cli)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(pending).To(BeTrue())
 }
 
-func TestCleanupMaaSCRDWaitsForControllerDeploymentRemovalAfterCompletion(t *testing.T) {
+func TestMaaSRemovalPendingWaitsForControllerDeploymentRemovalAfterCompletion(t *testing.T) {
 	g := NewWithT(t)
 
 	m := newTestModule(t)
-	obj := newTestAIGateway()
-	obj.Spec.ModelsAsAService.ManagementState = removedState
-	rr := newTestRR(obj)
-
 	dep := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      maasControllerDeploymentName,
@@ -302,53 +280,44 @@ func TestCleanupMaaSCRDWaitsForControllerDeploymentRemovalAfterCompletion(t *tes
 			},
 		},
 	}
-	crd := &extv1.CustomResourceDefinition{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "aitenants.maas.opendatahub.io",
-			Labels: map[string]string{
-				maasCRDComponentLabelKey: maasCRDComponentLabelValue,
-				maasCRDNameLabelKey:      maasCRDNameLabelValue,
-			},
-		},
-	}
-	rr.Client = fake.NewClientBuilder().
+	cli := fake.NewClientBuilder().
 		WithScheme(newTestScheme(t)).
-		WithObjects(dep, crd).
+		WithObjects(dep).
 		Build()
-
-	g.Expect(m.cleanupMaaSCRD(context.Background(), rr)).To(Succeed())
 
 	// maas-controller reported completion, but its Deployment is still present
 	// (excluding it from this pass's render hasn't been garbage-collected yet);
-	// CRD cleanup must not jump ahead of that.
-	g.Expect(rr.Client.Get(context.Background(), types.NamespacedName{Name: "aitenants.maas.opendatahub.io"}, &extv1.CustomResourceDefinition{})).To(Succeed())
+	// removal must not be considered done yet.
+	pending, err := m.maasRemovalPending(context.Background(), cli)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(pending).To(BeTrue())
 }
 
-func TestCleanupMaaSCRDDeletesCRDsAfterControllerGone(t *testing.T) {
+func TestMaaSRemovalPendingFalseAfterControllerGoneLeavesCRDsInPlace(t *testing.T) {
 	g := NewWithT(t)
 
 	m := newTestModule(t)
-	obj := newTestAIGateway()
-	obj.Spec.ModelsAsAService.ManagementState = removedState
-	rr := newTestRR(obj)
-
 	crd := &extv1.CustomResourceDefinition{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "aitenants.maas.opendatahub.io",
 			Labels: map[string]string{
 				maasCRDComponentLabelKey: maasCRDComponentLabelValue,
-				maasCRDNameLabelKey:      maasCRDNameLabelValue,
 			},
 		},
 	}
-	rr.Client = fake.NewClientBuilder().
+	cli := fake.NewClientBuilder().
 		WithScheme(newTestScheme(t)).
 		WithRuntimeObjects(crd).
 		Build()
 
-	g.Expect(m.cleanupMaaSCRD(context.Background(), rr)).To(Succeed())
+	// No maas-controller Deployment at all: teardown is complete and the
+	// controller is gone, so removal is no longer pending even though the
+	// vendored CRD (never deleted by design) is still present.
+	pending, err := m.maasRemovalPending(context.Background(), cli)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(pending).To(BeFalse())
 
-	g.Expect(rr.Client.Get(context.Background(), types.NamespacedName{Name: "aitenants.maas.opendatahub.io"}, &extv1.CustomResourceDefinition{})).ToNot(Succeed())
+	g.Expect(cli.Get(context.Background(), types.NamespacedName{Name: "aitenants.maas.opendatahub.io"}, &extv1.CustomResourceDefinition{})).To(Succeed())
 }
 
 func TestEnsureInfraSecretMigrationRBACCreatesNamespaceAndRBACWhenManaged(t *testing.T) {
