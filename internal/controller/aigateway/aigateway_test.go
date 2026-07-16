@@ -33,7 +33,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	componentApi "github.com/opendatahub-io/ai-gateway-operator/api/components/v1alpha1"
 	moduleconfig "github.com/opendatahub-io/ai-gateway-operator/pkg/config"
@@ -523,6 +525,43 @@ func TestMaasAwareGCPredicateAllowsMaaSResourcesOnceTeardownCompleted(t *testing
 	deletable, err := m.maasAwareGCPredicate(rr, candidate)
 	g.Expect(err).NotTo(HaveOccurred())
 	g.Expect(deletable).To(BeTrue())
+}
+
+func TestMaasAwareGCPredicateBoundsDeploymentGet(t *testing.T) {
+	g := NewWithT(t)
+
+	m := newTestModule(t)
+	obj := newTestAIGateway()
+	obj.UID = "test-uid"
+	obj.Generation = 3
+	rr := newTestRR(obj)
+
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      maasControllerDeploymentName,
+			Namespace: m.cfg.ApplicationsNamespace,
+		},
+	}
+
+	var gotDeadline bool
+	var hadDeadline bool
+	rr.Client = fake.NewClientBuilder().WithScheme(newTestScheme(t)).WithObjects(dep).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				_, hadDeadline = ctx.Deadline()
+				gotDeadline = true
+				return c.Get(ctx, key, obj, opts...)
+			},
+		}).
+		Build()
+
+	candidate := notStaleCandidate(obj, rr)
+	candidate.SetLabels(map[string]string{maasCRDComponentLabelKey: maasCRDComponentLabelValue})
+
+	_, err := m.maasAwareGCPredicate(rr, candidate)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(gotDeadline).To(BeTrue(), "expected the Deployment GET to be intercepted")
+	g.Expect(hadDeadline).To(BeTrue(), "expected a bounded context, not context.Background()")
 }
 
 func TestOverWriteConditionReportsMaaSRemovalInProgress(t *testing.T) {

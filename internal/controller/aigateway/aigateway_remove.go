@@ -3,6 +3,7 @@ package aigateway
 import (
 	"context"
 	"fmt"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -21,6 +22,8 @@ const (
 	maasTeardownCompletedKey     = "maas.opendatahub.io/teardown-completed"
 	maasCRDComponentLabelKey     = "app.kubernetes.io/component"
 	maasCRDComponentLabelValue   = "models-as-a-service"
+
+	maasGCPredicateTimeout = 10 * time.Second
 )
 
 // shouldKeepMaaSInstalled reports whether the vendored maas-controller bundle
@@ -152,6 +155,8 @@ func (m *Module) maasAwareGCPredicate(rr *odhtypes.ReconciliationRequest, obj un
 		return false, nil
 	}
 
-	return m.maasTeardownCompleted(context.Background(), rr.Client)
-}
+	ctx, cancel := context.WithTimeout(context.Background(), maasGCPredicateTimeout)
+	defer cancel()
 
+	return m.maasTeardownCompleted(ctx, rr.Client)
+}
