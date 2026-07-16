@@ -258,6 +258,13 @@ rules:
   - update
   - watch
 - apiGroups:
+  - discovery.k8s.io
+  resources:
+  - endpointslices
+  verbs:
+  - list
+  - watch
+- apiGroups:
   - dscinitialization.opendatahub.io
   resources:
   - dscinitializations
@@ -310,8 +317,10 @@ rules:
   - externalproviders
   verbs:
   - create
+  - delete
   - get
   - list
+  - patch
   - update
   - watch
 - apiGroups:
@@ -359,10 +368,13 @@ rules:
   - maas.opendatahub.io
   resources:
   - aitenants
+  - configs
+  - externalmodels
   - maasauthpolicies
   - maasmodelrefs
   - maassubscriptions
   - maastenantconfigs
+  - tenants
   verbs:
   - create
   - delete
@@ -396,25 +408,6 @@ rules:
   - get
   - patch
   - update
-- apiGroups:
-  - maas.opendatahub.io
-  resources:
-  - configs
-  - externalmodels
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - maas.opendatahub.io
-  resources:
-  - tenants
-  verbs:
-  - get
-  - list
-  - patch
-  - update
-  - watch
 - apiGroups:
   - monitoring.coreos.com
   resources:
