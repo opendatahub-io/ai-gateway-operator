@@ -387,7 +387,7 @@ func TestEnsureInfraSecretMigrationRBACNoopWhenTeardownNotCompleted(t *testing.T
 	g.Expect(rr.Client.Get(context.Background(), types.NamespacedName{Name: odhInfrastructureNS}, &corev1.Namespace{})).To(Succeed())
 }
 
-func TestEnsureInfraSecretMigrationRBACDeletesNamespaceOnceTeardownCompleted(t *testing.T) {
+func TestEnsureInfraSecretMigrationRBACDeletesRBACButKeepsNamespaceOnceTeardownCompleted(t *testing.T) {
 	g := NewWithT(t)
 
 	m := newTestModuleWithNamespace(t, odhApplicationsNS)
@@ -407,11 +407,37 @@ func TestEnsureInfraSecretMigrationRBACDeletesNamespaceOnceTeardownCompleted(t *
 	infraNs := &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{Name: odhInfrastructureNS},
 	}
-	rr.Client = fake.NewClientBuilder().WithScheme(newTestScheme(t)).WithObjects(dep, infraNs).Build()
+	role := &rbacv1.Role{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      secretMigrateRoleName,
+			Namespace: odhInfrastructureNS,
+		},
+	}
+	roleBinding := &rbacv1.RoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      secretMigrateRoleName,
+			Namespace: odhInfrastructureNS,
+		},
+	}
+	dbSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      maasDBConfigSecret,
+			Namespace: odhInfrastructureNS,
+		},
+	}
+	rr.Client = fake.NewClientBuilder().WithScheme(newTestScheme(t)).
+		WithObjects(dep, infraNs, role, roleBinding, dbSecret).Build()
 
 	g.Expect(m.ensureInfraSecretMigrationRBAC(context.Background(), rr)).To(Succeed())
 
-	g.Expect(rr.Client.Get(context.Background(), types.NamespacedName{Name: odhInfrastructureNS}, &corev1.Namespace{})).ToNot(Succeed())
+	g.Expect(rr.Client.Get(context.Background(), types.NamespacedName{Name: odhInfrastructureNS}, &corev1.Namespace{})).
+		To(Succeed(), "namespace should be preserved")
+	g.Expect(rr.Client.Get(context.Background(), types.NamespacedName{Name: secretMigrateRoleName, Namespace: odhInfrastructureNS}, &rbacv1.Role{})).
+		ToNot(Succeed(), "Role should be deleted")
+	g.Expect(rr.Client.Get(context.Background(), types.NamespacedName{Name: secretMigrateRoleName, Namespace: odhInfrastructureNS}, &rbacv1.RoleBinding{})).
+		ToNot(Succeed(), "RoleBinding should be deleted")
+	g.Expect(rr.Client.Get(context.Background(), types.NamespacedName{Name: maasDBConfigSecret, Namespace: odhInfrastructureNS}, &corev1.Secret{})).
+		To(Succeed(), "maas-db-config secret should be preserved")
 }
 
 func TestEnsureInfraSecretMigrationRBACNoopWhenSeparationDisabled(t *testing.T) {

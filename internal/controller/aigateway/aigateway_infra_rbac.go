@@ -39,18 +39,15 @@ const (
 	maasDBConfigSecret    = "maas-db-config"
 )
 
-// ensureInfraSecretMigrationRBAC manages the lifecycle of the infrastructure namespace -
-// the one holding maas-api, the maas-db-config connection secret, and this function's own
-// namespace-scoped RBAC that lets maas-controller copy maas-db-config during upgrades.
+// ensureInfraSecretMigrationRBAC manages the lifecycle of the infrastructure namespace's
+// RBAC resources - the Role and RoleBinding that let maas-controller copy maas-db-config
+// during upgrades.
 //
 // While Managed, it ensures the namespace and RBAC exist. While Removed, it waits for
 // maas-controller to report (via TeardownCompletedAnnotation on its own Deployment) that
-// its self-teardown is done, then deletes the whole infrastructure namespace - which also
-// removes this RBAC, since nothing in that namespace carries an ownerReference (see
-// ensureNamespace below) and so cannot be left to gc.NewAction. Deleting the namespace does
-// not destroy irreplaceable state: maas-api is per-tenant compute that maas-controller
-// recreates on demand, and maas-db-config is a re-derivable connection string - the database
-// itself is expected to be external (e.g. AWS RDS) in production.
+// its self-teardown is done, then deletes the Role and RoleBinding. The namespace and
+// maas-db-config secret are intentionally preserved so that re-enabling MaaS does not
+// require reprovisioning the database connection.
 func (m *Module) ensureInfraSecretMigrationRBAC(ctx context.Context, rr *odhtypes.ReconciliationRequest) error {
 	obj, ok := rr.Instance.(*componentApi.AIGateway)
 	if !ok {
@@ -76,7 +73,7 @@ func (m *Module) ensureInfraSecretMigrationRBAC(ctx context.Context, rr *odhtype
 		if !completed {
 			return nil
 		}
-		return m.ensureInfraNamespaceDeleted(ctx, rr.Client, infraNs)
+		return ensureInfraRBACDeleted(ctx, rr.Client, infraNs)
 	default:
 		return nil
 	}
@@ -103,20 +100,19 @@ func (m *Module) ensureInfraSecretMigrationRBAC(ctx context.Context, rr *odhtype
 	return nil
 }
 
-func (m *Module) ensureInfraNamespaceDeleted(ctx context.Context, cli client.Client, name string) error {
-	ns := &corev1.Namespace{}
-	err := cli.Get(ctx, types.NamespacedName{Name: name}, ns)
-	switch {
-	case k8serr.IsNotFound(err):
-		return nil
-	case err != nil:
-		return fmt.Errorf("get infrastructure namespace %s: %w", name, err)
+func ensureInfraRBACDeleted(ctx context.Context, cli client.Client, namespace string) error {
+	role := &rbacv1.Role{
+		ObjectMeta: metav1.ObjectMeta{Name: secretMigrateRoleName, Namespace: namespace},
+	}
+	if err := cli.Delete(ctx, role); client.IgnoreNotFound(err) != nil {
+		return fmt.Errorf("delete secret-migrate Role in %s: %w", namespace, err)
 	}
 
-	if ns.DeletionTimestamp.IsZero() {
-		if err := cli.Delete(ctx, ns); client.IgnoreNotFound(err) != nil {
-			return fmt.Errorf("delete infrastructure namespace %s: %w", name, err)
-		}
+	rb := &rbacv1.RoleBinding{
+		ObjectMeta: metav1.ObjectMeta{Name: secretMigrateRoleName, Namespace: namespace},
+	}
+	if err := cli.Delete(ctx, rb); client.IgnoreNotFound(err) != nil {
+		return fmt.Errorf("delete secret-migrate RoleBinding in %s: %w", namespace, err)
 	}
 
 	return nil
