@@ -44,6 +44,16 @@ replacements:
           name: maas-controller
         fieldPaths:
           - spec.template.spec.containers.[name=manager].env.[name=INFRA_NAMESPACE].value
+  - source:
+      kind: ConfigMap
+      name: maas-parameters
+      fieldPath: data.gateway-namespace
+    targets:
+      - select:
+          kind: Deployment
+          name: maas-controller
+        fieldPaths:
+          - spec.template.spec.containers.[name=manager].env.[name=GATEWAY_NAMESPACE].value
 
 patches:
   # Remove OCP service-serving cert annotation (cert-manager handles TLS on xKS)
