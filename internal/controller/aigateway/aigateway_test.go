@@ -363,6 +363,41 @@ func TestEnsureInfraSecretMigrationRBACCreatesNamespaceAndRBACWhenManaged(t *tes
 	}, &rbacv1.RoleBinding{})).To(Succeed())
 }
 
+func TestEnsureInfraSecretMigrationRBACLabelsPreExistingNamespace(t *testing.T) {
+	g := NewWithT(t)
+
+	m := newTestModuleWithNamespace(t, odhApplicationsNS)
+	obj := newTestAIGateway()
+	obj.Spec.ModelsAsAService.ManagementState = managedState
+
+	preExistingNS := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   odhInfrastructureNS,
+			Labels: map[string]string{"existing-label": "keep-me"},
+		},
+	}
+	rr := newTestRR(obj)
+	rr.Client = fake.NewClientBuilder().WithScheme(newTestScheme(t)).WithObjects(preExistingNS).Build()
+
+	g.Expect(m.ensureInfraSecretMigrationRBAC(context.Background(), rr)).To(Succeed())
+
+	var ns corev1.Namespace
+	g.Expect(rr.Client.Get(context.Background(), types.NamespacedName{Name: odhInfrastructureNS}, &ns)).To(Succeed())
+	g.Expect(ns.Labels).To(HaveKeyWithValue("app.kubernetes.io/part-of", "ai-gateway"))
+	g.Expect(ns.Labels).To(HaveKeyWithValue("app.kubernetes.io/managed-by", "ai-gateway-operator"))
+	g.Expect(ns.Labels).To(HaveKeyWithValue("opendatahub.io/generated-namespace", "true"))
+	g.Expect(ns.Labels).To(HaveKeyWithValue("existing-label", "keep-me"))
+
+	g.Expect(rr.Client.Get(context.Background(), types.NamespacedName{
+		Name:      secretMigrateRoleName,
+		Namespace: odhInfrastructureNS,
+	}, &rbacv1.Role{})).To(Succeed())
+	g.Expect(rr.Client.Get(context.Background(), types.NamespacedName{
+		Name:      secretMigrateRoleName,
+		Namespace: odhInfrastructureNS,
+	}, &rbacv1.RoleBinding{})).To(Succeed())
+}
+
 func TestEnsureInfraSecretMigrationRBACNoopWhenTeardownNotCompleted(t *testing.T) {
 	g := NewWithT(t)
 
