@@ -80,14 +80,14 @@ import (
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,resourceNames=maas-controller-cluster-config-role;maas-controller-role;maas-owner-role;maas-viewer-role,verbs=get;update;patch;delete
 // +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=validatingwebhookconfigurations,verbs=create;list;watch
 // +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=validatingwebhookconfigurations,resourceNames=maas-validating-webhook-configuration,verbs=get;update;patch;delete
-// +kubebuilder:rbac:groups="",resources=namespaces,verbs=create;delete;get;list;patch;update;watch
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=create;get;list;patch;update;watch
 
 // MaaS RBAC escalation for manager-role — permissions granted inside vendored maascontroller ClusterRoles.
 // Required so ai-gateway-operator can create/patch those roles without RBAC escalation errors.
 // Cluster-wide rules (no resourceNames) are required for escalation; named-role rules alone are not enough.
 // +kubebuilder:rbac:groups="",resources=serviceaccounts/token,verbs=create
 // +kubebuilder:rbac:groups="",resources=endpoints;pods,verbs=get;list;watch
-// +kubebuilder:rbac:groups="",resources=namespaces,verbs=delete;patch;update
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=patch
 // +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=get
 // +kubebuilder:rbac:groups=apps,resources=deployments/finalizers,verbs=update
 // +kubebuilder:rbac:groups=authentication.k8s.io,resources=tokenreviews,verbs=create
