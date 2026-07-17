@@ -74,7 +74,7 @@ vars:
       kind: ConfigMap
       name: maas-parameters
     fieldref:
-      fieldpath: data.NAMESPACE
+      fieldpath: data.namespace
   - name: ISSUER_REF_NAME
     objref:
       apiVersion: v1
