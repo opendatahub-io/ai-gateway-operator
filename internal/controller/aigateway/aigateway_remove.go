@@ -18,7 +18,7 @@ import (
 const (
 	removedState                      = "Removed"
 	maasControllerDeploymentName      = "maas-controller"
-	batchGatewayOperatorDeployment    = "llm-d-batch-gateway-operator"
+	batchGatewayOperatorDeploymentName = "llm-d-batch-gateway-operator"
 	maasTeardownRequestedKey          = "maas.opendatahub.io/teardown-requested"
 	maasTeardownCompletedKey          = "maas.opendatahub.io/teardown-completed"
 	maasCRDComponentLabelKey          = "app.kubernetes.io/component"

@@ -307,9 +307,9 @@ func (m *Module) reportSubModuleStatus(ctx context.Context, rr *odhtypes.Reconci
 
 	// BatchGatewayReady — driven by the llm-d-batch-gateway-operator Deployment specifically.
 	if obj.Spec.BatchGateway.ManagementState == managedState {
-		ready, err := deploymentAvailable(ctx, rr, batchGatewayOperatorDeployment, ns)
+		ready, err := deploymentAvailable(ctx, rr, batchGatewayOperatorDeploymentName, ns)
 		if err != nil {
-			return fmt.Errorf("checking %s Deployment: %w", batchGatewayOperatorDeployment, err)
+			return fmt.Errorf("checking %s Deployment: %w", batchGatewayOperatorDeploymentName, err)
 		}
 		if ready {
 			rr.Conditions.MarkTrue(

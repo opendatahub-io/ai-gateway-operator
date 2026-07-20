@@ -107,16 +107,39 @@ func TestReportSubModuleStatus_MaaSManaged_DeploymentsAvailable(t *testing.T) {
 	g.Expect(cond.Reason).To(Equal(status.SubModuleReadyReason))
 }
 
-// TestReportSubModuleStatus_MaaSManaged_DeploymentNotReady verifies ModelsAsAServiceReady=False
-// when modelsAsAService is Managed but the maas-controller Deployment is not yet ready.
+// TestReportSubModuleStatus_MaaSManaged_DeploymentAbsent verifies ModelsAsAServiceReady=False
+// when modelsAsAService is Managed but the maas-controller Deployment does not exist yet.
 func TestReportSubModuleStatus_MaaSManaged_DeploymentsNotAvailable(t *testing.T) {
 	g := NewWithT(t)
 
 	m := newTestModuleWithNamespace(t, "opendatahub")
 	obj := newTestAIGateway()
 	obj.Spec.ModelsAsAService.ManagementState = managedState
-	// No Deployment object in the fake client → deploymentAvailable returns false
+	// No Deployment object in the fake client → IsNotFound → (false, nil)
 	rr := newSubModuleRR(t, obj)
+
+	g.Expect(m.reportSubModuleStatus(context.Background(), rr)).To(Succeed())
+
+	cond := rr.Conditions.GetCondition(status.ConditionModelsAsAServiceReady)
+	g.Expect(cond).NotTo(BeNil())
+	g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+	g.Expect(cond.Reason).To(Equal(status.SubModuleNotReadyReason))
+}
+
+// TestReportSubModuleStatus_MaaSManaged_DeploymentZeroReplicas verifies ModelsAsAServiceReady=False
+// when the Deployment exists but has ReadyReplicas=0 (e.g. pod crash-looping).
+func TestReportSubModuleStatus_MaaSManaged_DeploymentZeroReplicas(t *testing.T) {
+	g := NewWithT(t)
+
+	m := newTestModuleWithNamespace(t, "opendatahub")
+	obj := newTestAIGateway()
+	obj.Spec.ModelsAsAService.ManagementState = managedState
+	// Deployment exists but no ready replicas
+	deploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: maasControllerDeploymentName, Namespace: "opendatahub"},
+		Status:     appsv1.DeploymentStatus{ReadyReplicas: 0},
+	}
+	rr := newSubModuleRR(t, obj, deploy)
 
 	g.Expect(m.reportSubModuleStatus(context.Background(), rr)).To(Succeed())
 
