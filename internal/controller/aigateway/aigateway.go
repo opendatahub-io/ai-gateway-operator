@@ -21,9 +21,9 @@ import (
 	"fmt"
 	"sort"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -248,32 +248,44 @@ func (m *Module) overWriteCondition(ctx context.Context, rr *odhtypes.Reconcilia
 	return nil
 }
 
+// deploymentAvailable returns true when the named Deployment in ns has at
+// least one ready replica. Returns false (not an error) when the Deployment
+// does not exist yet — this is normal while a sub-module is starting up.
+func deploymentAvailable(ctx context.Context, rr *odhtypes.ReconciliationRequest, name, ns string) bool {
+	if rr.Client == nil {
+		return false
+	}
+	deploy := &appsv1.Deployment{}
+	if err := rr.Client.Get(ctx, types.NamespacedName{Name: name, Namespace: ns}, deploy); err != nil {
+		return false
+	}
+	return deploy.Status.ReadyReplicas >= 1
+}
+
 // reportSubModuleStatus sets per-sub-module Ready conditions on the AIGateway CR.
-// This runs after deployments.NewAction() so DeploymentsAvailable reflects the
-// current deployment state. Each sub-module gets its own condition so consumers
-// (e.g. the Dashboard areas system) can observe them independently.
-func (m *Module) reportSubModuleStatus(_ context.Context, rr *odhtypes.ReconciliationRequest) error {
+// Each condition is derived from its specific Deployment so that the conditions
+// are independent — one sub-module failing does not affect another's condition.
+func (m *Module) reportSubModuleStatus(ctx context.Context, rr *odhtypes.ReconciliationRequest) error {
 	obj, ok := rr.Instance.(*componentApi.AIGateway)
 	if !ok {
 		return fmt.Errorf("instance is not an AIGateway")
 	}
 
-	daCond := rr.Conditions.GetCondition(status.ConditionDeploymentsAvailable)
-	deploymentsAvailable := daCond != nil && daCond.Status == metav1.ConditionTrue
+	ns := m.cfg.ApplicationsNamespace
 
-	// ModelsAsAServiceReady
+	// ModelsAsAServiceReady — driven by the maas-controller Deployment specifically.
 	if obj.Spec.ModelsAsAService.ManagementState == managedState {
-		if deploymentsAvailable {
+		if deploymentAvailable(ctx, rr, "maas-controller", ns) {
 			rr.Conditions.MarkTrue(
 				status.ConditionModelsAsAServiceReady,
 				conditions.WithReason(status.SubModuleReadyReason),
-				conditions.WithMessage("modelsAsAService is Managed and deployments are available"),
+				conditions.WithMessage("maas-controller Deployment is available"),
 			)
 		} else {
 			rr.Conditions.MarkFalse(
 				status.ConditionModelsAsAServiceReady,
 				conditions.WithReason(status.SubModuleNotReadyReason),
-				conditions.WithMessage("modelsAsAService is Managed but deployments are not yet available"),
+				conditions.WithMessage("maas-controller Deployment is not yet available"),
 			)
 		}
 	} else {
@@ -285,19 +297,19 @@ func (m *Module) reportSubModuleStatus(_ context.Context, rr *odhtypes.Reconcili
 		)
 	}
 
-	// BatchGatewayReady
+	// BatchGatewayReady — driven by the llm-d-batch-gateway-operator Deployment specifically.
 	if obj.Spec.BatchGateway.ManagementState == managedState {
-		if deploymentsAvailable {
+		if deploymentAvailable(ctx, rr, "llm-d-batch-gateway-operator", ns) {
 			rr.Conditions.MarkTrue(
 				status.ConditionBatchGatewayReady,
 				conditions.WithReason(status.SubModuleReadyReason),
-				conditions.WithMessage("batchGateway is Managed and deployments are available"),
+				conditions.WithMessage("llm-d-batch-gateway-operator Deployment is available"),
 			)
 		} else {
 			rr.Conditions.MarkFalse(
 				status.ConditionBatchGatewayReady,
 				conditions.WithReason(status.SubModuleNotReadyReason),
-				conditions.WithMessage("batchGateway is Managed but deployments are not yet available"),
+				conditions.WithMessage("llm-d-batch-gateway-operator Deployment is not yet available"),
 			)
 		}
 	} else {
