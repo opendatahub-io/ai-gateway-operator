@@ -248,18 +248,22 @@ func (m *Module) overWriteCondition(ctx context.Context, rr *odhtypes.Reconcilia
 	return nil
 }
 
-// deploymentAvailable returns true when the named Deployment in ns has at
-// least one ready replica. Returns false (not an error) when the Deployment
-// does not exist yet — this is normal while a sub-module is starting up.
-func deploymentAvailable(ctx context.Context, rr *odhtypes.ReconciliationRequest, name, ns string) bool {
+// deploymentAvailable reports whether the named Deployment in ns has at least
+// one ready replica. NotFound is treated as (false, nil) — normal while a
+// sub-module is starting up. Any other error is propagated so the reconciler
+// requeues rather than silently sticking the condition on NotReady.
+func deploymentAvailable(ctx context.Context, rr *odhtypes.ReconciliationRequest, name, ns string) (bool, error) {
 	if rr.Client == nil {
-		return false
+		return false, nil
 	}
 	deploy := &appsv1.Deployment{}
 	if err := rr.Client.Get(ctx, types.NamespacedName{Name: name, Namespace: ns}, deploy); err != nil {
-		return false
+		if k8serr.IsNotFound(err) {
+			return false, nil
+		}
+		return false, err
 	}
-	return deploy.Status.ReadyReplicas >= 1
+	return deploy.Status.ReadyReplicas >= 1, nil
 }
 
 // reportSubModuleStatus sets per-sub-module Ready conditions on the AIGateway CR.
@@ -275,7 +279,11 @@ func (m *Module) reportSubModuleStatus(ctx context.Context, rr *odhtypes.Reconci
 
 	// ModelsAsAServiceReady — driven by the maas-controller Deployment specifically.
 	if obj.Spec.ModelsAsAService.ManagementState == managedState {
-		if deploymentAvailable(ctx, rr, "maas-controller", ns) {
+		ready, err := deploymentAvailable(ctx, rr, "maas-controller", ns)
+		if err != nil {
+			return fmt.Errorf("checking maas-controller Deployment: %w", err)
+		}
+		if ready {
 			rr.Conditions.MarkTrue(
 				status.ConditionModelsAsAServiceReady,
 				conditions.WithReason(status.SubModuleReadyReason),
@@ -299,7 +307,11 @@ func (m *Module) reportSubModuleStatus(ctx context.Context, rr *odhtypes.Reconci
 
 	// BatchGatewayReady — driven by the llm-d-batch-gateway-operator Deployment specifically.
 	if obj.Spec.BatchGateway.ManagementState == managedState {
-		if deploymentAvailable(ctx, rr, "llm-d-batch-gateway-operator", ns) {
+		ready, err := deploymentAvailable(ctx, rr, "llm-d-batch-gateway-operator", ns)
+		if err != nil {
+			return fmt.Errorf("checking llm-d-batch-gateway-operator Deployment: %w", err)
+		}
+		if ready {
 			rr.Conditions.MarkTrue(
 				status.ConditionBatchGatewayReady,
 				conditions.WithReason(status.SubModuleReadyReason),
