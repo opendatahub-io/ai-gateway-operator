@@ -97,7 +97,7 @@ func TestReportSubModuleStatus_MaaSManaged_DeploymentsAvailable(t *testing.T) {
 	m := newTestModuleWithNamespace(t, "opendatahub")
 	obj := newTestAIGateway()
 	obj.Spec.ModelsAsAService.ManagementState = managedState
-	rr := newSubModuleRR(t, obj, readyDeploy("maas-controller", "opendatahub"))
+	rr := newSubModuleRR(t, obj, readyDeploy(maasControllerDeploymentName, "opendatahub"))
 
 	g.Expect(m.reportSubModuleStatus(context.Background(), rr)).To(Succeed())
 
@@ -133,7 +133,7 @@ func TestReportSubModuleStatus_MaaSRemoved(t *testing.T) {
 
 	m := newTestModuleWithNamespace(t, "opendatahub")
 	obj := newTestAIGateway()
-	rr := newSubModuleRR(t, obj, readyDeploy("maas-controller", "opendatahub"))
+	rr := newSubModuleRR(t, obj, readyDeploy(maasControllerDeploymentName, "opendatahub"))
 
 	g.Expect(m.reportSubModuleStatus(context.Background(), rr)).To(Succeed())
 
@@ -154,7 +154,7 @@ func TestReportSubModuleStatus_BothManaged(t *testing.T) {
 	obj.Spec.ModelsAsAService.ManagementState = managedState
 	obj.Spec.BatchGateway.ManagementState = managedState
 	// Only maas-controller is ready; batch-gateway Deployment is absent
-	rr := newSubModuleRR(t, obj, readyDeploy("maas-controller", "opendatahub"))
+	rr := newSubModuleRR(t, obj, readyDeploy(maasControllerDeploymentName, "opendatahub"))
 
 	g.Expect(m.reportSubModuleStatus(context.Background(), rr)).To(Succeed())
 
