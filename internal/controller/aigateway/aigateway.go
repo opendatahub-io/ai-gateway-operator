@@ -81,10 +81,11 @@ var batchGatewayImageParamMap = map[string]string{
 }
 
 var maasImageParamMap = map[string]string{
-	"maas-controller-image":      "RELATED_IMAGE_ODH_MAAS_CONTROLLER_IMAGE",
-	"maas-api-image":             "RELATED_IMAGE_ODH_MAAS_API_IMAGE",
-	"payload-processing-image":   "RELATED_IMAGE_ODH_AI_GATEWAY_PAYLOAD_PROCESSING_IMAGE",
-	"maas-api-key-cleanup-image": "RELATED_IMAGE_UBI_MINIMAL_IMAGE",
+	"maas-controller-image":          "RELATED_IMAGE_ODH_MAAS_CONTROLLER_IMAGE",
+	"maas-api-image":                 "RELATED_IMAGE_ODH_MAAS_API_IMAGE",
+	"payload-processing-image":       "RELATED_IMAGE_ODH_AI_GATEWAY_PAYLOAD_PROCESSING_IMAGE",
+	"maas-api-key-cleanup-image":     "RELATED_IMAGE_UBI_MINIMAL_IMAGE",
+	"usage-logs-tenancy-proxy-image": "RELATED_IMAGE_ODH_PYTHON_312_IMAGE",
 }
 
 // Module holds process-lifetime state for the aigateway controller.
