@@ -287,13 +287,13 @@ func (m *Module) reportSubModuleStatus(ctx context.Context, rr *odhtypes.Reconci
 			rr.Conditions.MarkTrue(
 				status.ConditionModelsAsAServiceReady,
 				conditions.WithReason(status.SubModuleReadyReason),
-				conditions.WithMessage("maas-controller Deployment is available"),
+				conditions.WithMessage("modelsAsAService is Managed and deployments are available"),
 			)
 		} else {
 			rr.Conditions.MarkFalse(
 				status.ConditionModelsAsAServiceReady,
 				conditions.WithReason(status.SubModuleNotReadyReason),
-				conditions.WithMessage("maas-controller Deployment is not yet available"),
+				conditions.WithMessage("modelsAsAService is Managed but deployments are not yet available"),
 			)
 		}
 	} else {
@@ -315,13 +315,13 @@ func (m *Module) reportSubModuleStatus(ctx context.Context, rr *odhtypes.Reconci
 			rr.Conditions.MarkTrue(
 				status.ConditionBatchGatewayReady,
 				conditions.WithReason(status.SubModuleReadyReason),
-				conditions.WithMessage("llm-d-batch-gateway-operator Deployment is available"),
+				conditions.WithMessage("batchGateway is Managed and deployments are available"),
 			)
 		} else {
 			rr.Conditions.MarkFalse(
 				status.ConditionBatchGatewayReady,
 				conditions.WithReason(status.SubModuleNotReadyReason),
-				conditions.WithMessage("llm-d-batch-gateway-operator Deployment is not yet available"),
+				conditions.WithMessage("batchGateway is Managed but deployments are not yet available"),
 			)
 		}
 	} else {
