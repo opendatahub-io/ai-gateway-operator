@@ -23,6 +23,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -243,6 +244,70 @@ func (m *Module) overWriteCondition(ctx context.Context, rr *odhtypes.Reconcilia
 		conditions.WithReason(status.NoSubModuleManagedReason),
 		conditions.WithMessage("No sub-module is Managed; nothing to deploy"),
 	)
+
+	return nil
+}
+
+// reportSubModuleStatus sets per-sub-module Ready conditions on the AIGateway CR.
+// This runs after deployments.NewAction() so DeploymentsAvailable reflects the
+// current deployment state. Each sub-module gets its own condition so consumers
+// (e.g. the Dashboard areas system) can observe them independently.
+func (m *Module) reportSubModuleStatus(_ context.Context, rr *odhtypes.ReconciliationRequest) error {
+	obj, ok := rr.Instance.(*componentApi.AIGateway)
+	if !ok {
+		return fmt.Errorf("instance is not an AIGateway")
+	}
+
+	daCond := rr.Conditions.GetCondition(status.ConditionDeploymentsAvailable)
+	deploymentsAvailable := daCond != nil && daCond.Status == metav1.ConditionTrue
+
+	// ModelsAsAServiceReady
+	if obj.Spec.ModelsAsAService.ManagementState == managedState {
+		if deploymentsAvailable {
+			rr.Conditions.MarkTrue(
+				status.ConditionModelsAsAServiceReady,
+				conditions.WithReason(status.SubModuleReadyReason),
+				conditions.WithMessage("modelsAsAService is Managed and deployments are available"),
+			)
+		} else {
+			rr.Conditions.MarkFalse(
+				status.ConditionModelsAsAServiceReady,
+				conditions.WithReason(status.SubModuleNotReadyReason),
+				conditions.WithMessage("modelsAsAService is Managed but deployments are not yet available"),
+			)
+		}
+	} else {
+		rr.Conditions.MarkFalse(
+			status.ConditionModelsAsAServiceReady,
+			conditions.WithSeverity(common.ConditionSeverityInfo),
+			conditions.WithReason(status.SubModuleRemovedReason),
+			conditions.WithMessage("modelsAsAService ManagementState is Removed"),
+		)
+	}
+
+	// BatchGatewayReady
+	if obj.Spec.BatchGateway.ManagementState == managedState {
+		if deploymentsAvailable {
+			rr.Conditions.MarkTrue(
+				status.ConditionBatchGatewayReady,
+				conditions.WithReason(status.SubModuleReadyReason),
+				conditions.WithMessage("batchGateway is Managed and deployments are available"),
+			)
+		} else {
+			rr.Conditions.MarkFalse(
+				status.ConditionBatchGatewayReady,
+				conditions.WithReason(status.SubModuleNotReadyReason),
+				conditions.WithMessage("batchGateway is Managed but deployments are not yet available"),
+			)
+		}
+	} else {
+		rr.Conditions.MarkFalse(
+			status.ConditionBatchGatewayReady,
+			conditions.WithSeverity(common.ConditionSeverityInfo),
+			conditions.WithReason(status.SubModuleRemovedReason),
+			conditions.WithMessage("batchGateway ManagementState is Removed"),
+		)
+	}
 
 	return nil
 }

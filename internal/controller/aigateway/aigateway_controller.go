@@ -162,6 +162,7 @@ func NewReconciler(
 			deploy.WithApplyOrder(),
 		)).
 		WithAction(deployments.NewAction()).
+		WithAction(m.reportSubModuleStatus).
 		WithAction(m.overWriteCondition).
 		WithAction(m.reportStatus).
 		WithAction(gc.NewAction(

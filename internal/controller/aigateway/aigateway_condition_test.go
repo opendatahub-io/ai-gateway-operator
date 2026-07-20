@@ -70,6 +70,91 @@ func TestOverWriteConditionWhenAnySubRemoved(t *testing.T) {
 	g.Expect(rr.Conditions.GetCondition(readyCondition).Status).To(Equal(metav1.ConditionTrue))
 }
 
+// TestReportSubModuleStatus_MaaSManaged verifies that when modelsAsAService is Managed
+// and deployments are available, ModelsAsAServiceReady=True is set on the AIGateway CR.
+func TestReportSubModuleStatus_MaaSManaged_DeploymentsAvailable(t *testing.T) {
+	g := NewWithT(t)
+
+	m := newTestModule(t)
+	obj := newTestAIGateway()
+	obj.Spec.ModelsAsAService.ManagementState = managedState
+	rr := newReadinessRR(obj)
+
+	rr.Conditions.MarkTrue(status.ConditionDeploymentsAvailable)
+
+	g.Expect(m.reportSubModuleStatus(context.Background(), rr)).To(Succeed())
+
+	cond := rr.Conditions.GetCondition(status.ConditionModelsAsAServiceReady)
+	g.Expect(cond).NotTo(BeNil())
+	g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+	g.Expect(cond.Reason).To(Equal(status.SubModuleReadyReason))
+}
+
+// TestReportSubModuleStatus_MaaSManaged_DeploymentsNotAvailable verifies that when
+// modelsAsAService is Managed but deployments are not yet available, ModelsAsAServiceReady=False.
+func TestReportSubModuleStatus_MaaSManaged_DeploymentsNotAvailable(t *testing.T) {
+	g := NewWithT(t)
+
+	m := newTestModule(t)
+	obj := newTestAIGateway()
+	obj.Spec.ModelsAsAService.ManagementState = managedState
+	rr := newReadinessRR(obj)
+
+	rr.Conditions.MarkFalse(status.ConditionDeploymentsAvailable,
+		conditions.WithMessage("0/1 deployments ready"))
+
+	g.Expect(m.reportSubModuleStatus(context.Background(), rr)).To(Succeed())
+
+	cond := rr.Conditions.GetCondition(status.ConditionModelsAsAServiceReady)
+	g.Expect(cond).NotTo(BeNil())
+	g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+	g.Expect(cond.Reason).To(Equal(status.SubModuleNotReadyReason))
+}
+
+// TestReportSubModuleStatus_MaaSRemoved verifies that when modelsAsAService is Removed,
+// ModelsAsAServiceReady=False with Removed reason regardless of deployment state.
+func TestReportSubModuleStatus_MaaSRemoved(t *testing.T) {
+	g := NewWithT(t)
+
+	m := newTestModule(t)
+	obj := newTestAIGateway()
+	// modelsAsAService defaults to Removed
+	rr := newReadinessRR(obj)
+
+	rr.Conditions.MarkTrue(status.ConditionDeploymentsAvailable)
+
+	g.Expect(m.reportSubModuleStatus(context.Background(), rr)).To(Succeed())
+
+	cond := rr.Conditions.GetCondition(status.ConditionModelsAsAServiceReady)
+	g.Expect(cond).NotTo(BeNil())
+	g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+	g.Expect(cond.Reason).To(Equal(status.SubModuleRemovedReason))
+}
+
+// TestReportSubModuleStatus_BothManaged verifies that both sub-module conditions
+// are set independently when both are Managed.
+func TestReportSubModuleStatus_BothManaged(t *testing.T) {
+	g := NewWithT(t)
+
+	m := newTestModule(t)
+	obj := newTestAIGateway()
+	obj.Spec.ModelsAsAService.ManagementState = managedState
+	obj.Spec.BatchGateway.ManagementState = managedState
+	rr := newReadinessRR(obj)
+
+	rr.Conditions.MarkTrue(status.ConditionDeploymentsAvailable)
+
+	g.Expect(m.reportSubModuleStatus(context.Background(), rr)).To(Succeed())
+
+	maas := rr.Conditions.GetCondition(status.ConditionModelsAsAServiceReady)
+	g.Expect(maas).NotTo(BeNil())
+	g.Expect(maas.Status).To(Equal(metav1.ConditionTrue))
+
+	batch := rr.Conditions.GetCondition(status.ConditionBatchGatewayReady)
+	g.Expect(batch).NotTo(BeNil())
+	g.Expect(batch.Status).To(Equal(metav1.ConditionTrue))
+}
+
 // TestOverWriteConditionWhenManaged verifies that when a sub-module is Managed,
 // overWriteCondition keeps DeploymentsAvailable as-is, so a real failure stays
 // Error and Ready stays False.
