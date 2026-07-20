@@ -277,7 +277,7 @@ func (m *Module) reportSubModuleStatus(ctx context.Context, rr *odhtypes.Reconci
 
 	ns := m.cfg.ApplicationsNamespace
 
-	// ModelsAsAServiceReady — driven by the maas-controller Deployment specifically.
+	// ModelsAsAServiceReady — reflects the readyReplicas of the modelsAsAService sub-module Deployment.
 	if obj.Spec.ModelsAsAService.ManagementState == managedState {
 		ready, err := deploymentAvailable(ctx, rr, maasControllerDeploymentName, ns)
 		if err != nil {
@@ -305,7 +305,7 @@ func (m *Module) reportSubModuleStatus(ctx context.Context, rr *odhtypes.Reconci
 		)
 	}
 
-	// BatchGatewayReady — driven by the llm-d-batch-gateway-operator Deployment specifically.
+	// BatchGatewayReady — reflects the readyReplicas of the batchGateway sub-module Deployment.
 	if obj.Spec.BatchGateway.ManagementState == managedState {
 		ready, err := deploymentAvailable(ctx, rr, batchGatewayOperatorDeploymentName, ns)
 		if err != nil {
