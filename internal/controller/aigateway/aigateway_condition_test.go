@@ -21,7 +21,10 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
+	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	componentApi "github.com/opendatahub-io/ai-gateway-operator/api/components/v1alpha1"
 	"github.com/opendatahub-io/ai-gateway-operator/pkg/controller/status"
@@ -68,6 +71,125 @@ func TestOverWriteConditionWhenAnySubRemoved(t *testing.T) {
 	g.Expect(da.Reason).To(Equal(status.NoSubModuleManagedReason))
 
 	g.Expect(rr.Conditions.GetCondition(readyCondition).Status).To(Equal(metav1.ConditionTrue))
+}
+
+// newSubModuleRR builds a ReconciliationRequest with a fake client pre-populated
+// with the given objects, for testing reportSubModuleStatus.
+func newSubModuleRR(t *testing.T, obj *componentApi.AIGateway, objs ...client.Object) *odhtypes.ReconciliationRequest {
+	t.Helper()
+	rr := newReadinessRR(obj)
+	rr.Client = fake.NewClientBuilder().WithScheme(newTestScheme(t)).WithObjects(objs...).Build()
+	return rr
+}
+
+func readyDeploy(name, ns string) *appsv1.Deployment {
+	return &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
+		Status:     appsv1.DeploymentStatus{ReadyReplicas: 1},
+	}
+}
+
+// TestReportSubModuleStatus_MaaSManaged_DeploymentReady verifies ModelsAsAServiceReady=True
+// when modelsAsAService is Managed and the maas-controller Deployment is ready.
+func TestReportSubModuleStatus_MaaSManaged_DeploymentsAvailable(t *testing.T) {
+	g := NewWithT(t)
+
+	m := newTestModuleWithNamespace(t, "opendatahub")
+	obj := newTestAIGateway()
+	obj.Spec.ModelsAsAService.ManagementState = managedState
+	rr := newSubModuleRR(t, obj, readyDeploy(maasControllerDeploymentName, "opendatahub"))
+
+	g.Expect(m.reportSubModuleStatus(context.Background(), rr)).To(Succeed())
+
+	cond := rr.Conditions.GetCondition(status.ConditionModelsAsAServiceReady)
+	g.Expect(cond).NotTo(BeNil())
+	g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+	g.Expect(cond.Reason).To(Equal(status.SubModuleReadyReason))
+}
+
+// TestReportSubModuleStatus_MaaSManaged_DeploymentAbsent verifies ModelsAsAServiceReady=False
+// when modelsAsAService is Managed but the maas-controller Deployment does not exist yet.
+func TestReportSubModuleStatus_MaaSManaged_DeploymentsNotAvailable(t *testing.T) {
+	g := NewWithT(t)
+
+	m := newTestModuleWithNamespace(t, "opendatahub")
+	obj := newTestAIGateway()
+	obj.Spec.ModelsAsAService.ManagementState = managedState
+	// No Deployment object in the fake client → IsNotFound → (false, nil)
+	rr := newSubModuleRR(t, obj)
+
+	g.Expect(m.reportSubModuleStatus(context.Background(), rr)).To(Succeed())
+
+	cond := rr.Conditions.GetCondition(status.ConditionModelsAsAServiceReady)
+	g.Expect(cond).NotTo(BeNil())
+	g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+	g.Expect(cond.Reason).To(Equal(status.SubModuleNotReadyReason))
+}
+
+// TestReportSubModuleStatus_MaaSManaged_DeploymentZeroReplicas verifies ModelsAsAServiceReady=False
+// when the Deployment exists but has ReadyReplicas=0 (e.g. pod crash-looping).
+func TestReportSubModuleStatus_MaaSManaged_DeploymentZeroReplicas(t *testing.T) {
+	g := NewWithT(t)
+
+	m := newTestModuleWithNamespace(t, "opendatahub")
+	obj := newTestAIGateway()
+	obj.Spec.ModelsAsAService.ManagementState = managedState
+	// Deployment exists but no ready replicas
+	deploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: maasControllerDeploymentName, Namespace: "opendatahub"},
+		Status:     appsv1.DeploymentStatus{ReadyReplicas: 0},
+	}
+	rr := newSubModuleRR(t, obj, deploy)
+
+	g.Expect(m.reportSubModuleStatus(context.Background(), rr)).To(Succeed())
+
+	cond := rr.Conditions.GetCondition(status.ConditionModelsAsAServiceReady)
+	g.Expect(cond).NotTo(BeNil())
+	g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+	g.Expect(cond.Reason).To(Equal(status.SubModuleNotReadyReason))
+}
+
+// TestReportSubModuleStatus_MaaSRemoved verifies ModelsAsAServiceReady=False (Removed)
+// when modelsAsAService is Removed, regardless of whether the Deployment exists.
+func TestReportSubModuleStatus_MaaSRemoved(t *testing.T) {
+	g := NewWithT(t)
+
+	m := newTestModuleWithNamespace(t, "opendatahub")
+	obj := newTestAIGateway()
+	rr := newSubModuleRR(t, obj, readyDeploy(maasControllerDeploymentName, "opendatahub"))
+
+	g.Expect(m.reportSubModuleStatus(context.Background(), rr)).To(Succeed())
+
+	cond := rr.Conditions.GetCondition(status.ConditionModelsAsAServiceReady)
+	g.Expect(cond).NotTo(BeNil())
+	g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+	g.Expect(cond.Reason).To(Equal(status.SubModuleRemovedReason))
+}
+
+// TestReportSubModuleStatus_BothManaged_IndependentConditions verifies that conditions
+// are independent: if only maas-controller is ready and batch-gateway is not,
+// ModelsAsAServiceReady=True and BatchGatewayReady=False simultaneously.
+func TestReportSubModuleStatus_BothManaged(t *testing.T) {
+	g := NewWithT(t)
+
+	m := newTestModuleWithNamespace(t, "opendatahub")
+	obj := newTestAIGateway()
+	obj.Spec.ModelsAsAService.ManagementState = managedState
+	obj.Spec.BatchGateway.ManagementState = managedState
+	// Only maas-controller is ready; batch-gateway Deployment is absent
+	rr := newSubModuleRR(t, obj, readyDeploy(maasControllerDeploymentName, "opendatahub"))
+
+	g.Expect(m.reportSubModuleStatus(context.Background(), rr)).To(Succeed())
+
+	maas := rr.Conditions.GetCondition(status.ConditionModelsAsAServiceReady)
+	g.Expect(maas).NotTo(BeNil())
+	g.Expect(maas.Status).To(Equal(metav1.ConditionTrue))
+
+	// batch-gateway Deployment is absent → False independently of MaaS
+	batch := rr.Conditions.GetCondition(status.ConditionBatchGatewayReady)
+	g.Expect(batch).NotTo(BeNil())
+	g.Expect(batch.Status).To(Equal(metav1.ConditionFalse))
+	g.Expect(batch.Reason).To(Equal(status.SubModuleNotReadyReason))
 }
 
 // TestOverWriteConditionWhenManaged verifies that when a sub-module is Managed,

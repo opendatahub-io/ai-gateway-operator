@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"sort"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -243,6 +244,94 @@ func (m *Module) overWriteCondition(ctx context.Context, rr *odhtypes.Reconcilia
 		conditions.WithReason(status.NoSubModuleManagedReason),
 		conditions.WithMessage("No sub-module is Managed; nothing to deploy"),
 	)
+
+	return nil
+}
+
+// deploymentAvailable reports whether the named Deployment in ns has at least
+// one ready replica. NotFound is treated as (false, nil) — normal while a
+// sub-module is starting up. Any other error is propagated so the reconciler
+// requeues rather than silently sticking the condition on NotReady.
+func deploymentAvailable(ctx context.Context, rr *odhtypes.ReconciliationRequest, name, ns string) (bool, error) {
+	if rr.Client == nil {
+		return false, nil
+	}
+	deploy := &appsv1.Deployment{}
+	if err := rr.Client.Get(ctx, types.NamespacedName{Name: name, Namespace: ns}, deploy); err != nil {
+		if k8serr.IsNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return deploy.Status.ReadyReplicas >= 1, nil
+}
+
+// reportSubModuleStatus sets per-sub-module Ready conditions on the AIGateway CR.
+// Each condition is derived from its specific Deployment so that the conditions
+// are independent — one sub-module failing does not affect another's condition.
+func (m *Module) reportSubModuleStatus(ctx context.Context, rr *odhtypes.ReconciliationRequest) error {
+	obj, ok := rr.Instance.(*componentApi.AIGateway)
+	if !ok {
+		return fmt.Errorf("instance is not an AIGateway")
+	}
+
+	ns := m.cfg.ApplicationsNamespace
+
+	// ModelsAsAServiceReady — reflects the readyReplicas of the modelsAsAService sub-module Deployment.
+	if obj.Spec.ModelsAsAService.ManagementState == managedState {
+		ready, err := deploymentAvailable(ctx, rr, maasControllerDeploymentName, ns)
+		if err != nil {
+			return fmt.Errorf("checking %s Deployment: %w", maasControllerDeploymentName, err)
+		}
+		if ready {
+			rr.Conditions.MarkTrue(
+				status.ConditionModelsAsAServiceReady,
+				conditions.WithReason(status.SubModuleReadyReason),
+				conditions.WithMessage("modelsAsAService is Managed and deployments are available"),
+			)
+		} else {
+			rr.Conditions.MarkFalse(
+				status.ConditionModelsAsAServiceReady,
+				conditions.WithReason(status.SubModuleNotReadyReason),
+				conditions.WithMessage("modelsAsAService is Managed but deployments are not yet available"),
+			)
+		}
+	} else {
+		rr.Conditions.MarkFalse(
+			status.ConditionModelsAsAServiceReady,
+			conditions.WithSeverity(common.ConditionSeverityInfo),
+			conditions.WithReason(status.SubModuleRemovedReason),
+			conditions.WithMessage("modelsAsAService ManagementState is Removed"),
+		)
+	}
+
+	// BatchGatewayReady — reflects the readyReplicas of the batchGateway sub-module Deployment.
+	if obj.Spec.BatchGateway.ManagementState == managedState {
+		ready, err := deploymentAvailable(ctx, rr, batchGatewayOperatorDeploymentName, ns)
+		if err != nil {
+			return fmt.Errorf("checking %s Deployment: %w", batchGatewayOperatorDeploymentName, err)
+		}
+		if ready {
+			rr.Conditions.MarkTrue(
+				status.ConditionBatchGatewayReady,
+				conditions.WithReason(status.SubModuleReadyReason),
+				conditions.WithMessage("batchGateway is Managed and deployments are available"),
+			)
+		} else {
+			rr.Conditions.MarkFalse(
+				status.ConditionBatchGatewayReady,
+				conditions.WithReason(status.SubModuleNotReadyReason),
+				conditions.WithMessage("batchGateway is Managed but deployments are not yet available"),
+			)
+		}
+	} else {
+		rr.Conditions.MarkFalse(
+			status.ConditionBatchGatewayReady,
+			conditions.WithSeverity(common.ConditionSeverityInfo),
+			conditions.WithReason(status.SubModuleRemovedReason),
+			conditions.WithMessage("batchGateway ManagementState is Removed"),
+		)
+	}
 
 	return nil
 }
