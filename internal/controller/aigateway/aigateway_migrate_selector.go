@@ -50,6 +50,23 @@ var maasControllerRequiredSelectorLabels = map[string]string{
 	labels.ODH.Component(componentName): labels.True,
 }
 
+// maasControllerLegacySelectorLabelKeys are selector label keys that only ever
+// appeared on maas-controller's Deployment before it was owned by the AIGateway
+// module, when it was deployed by the standalone modelsasservice component.
+//
+// Unlike app.kubernetes.io/part-of, whose legacy and current values share a
+// single key (so the old and new values can never coexist), the legacy
+// app.opendatahub.io/modelsasservice key is distinct from the current
+// app.opendatahub.io/aigateway key: a Deployment recreated or patched with a
+// merged selector could carry both alongside maasControllerRequiredSelectorLabels.
+// selectorHasRequiredLabels must reject the presence of any of these keys
+// outright — otherwise this migration would treat such a selector as current,
+// and deploy.NewAction would still fail with "field is immutable" trying to
+// apply a selector that drops them.
+var maasControllerLegacySelectorLabelKeys = []string{
+	labels.ODH.Component("modelsasservice"),
+}
+
 // migrateMaasControllerSelector deletes the maas-controller Deployment when its
 // spec.selector.matchLabels is missing the labels the AIGateway module stamps on
 // it (see maasControllerRequiredSelectorLabels).
@@ -69,7 +86,9 @@ var maasControllerRequiredSelectorLabels = map[string]string{
 // The check only requires maasControllerRequiredSelectorLabels to be a subset of
 // the live selector (not exact equality), so this is a no-op once the Deployment
 // carries the current labels even though the selector also has other entries
-// (e.g. control-plane) that are not part of the migration.
+// (e.g. control-plane) that are not part of the migration. It additionally
+// rejects any maasControllerLegacySelectorLabelKeys outright, since those can
+// coexist with the current labels without a key collision (see its doc comment).
 func (m *Module) migrateMaasControllerSelector(ctx context.Context, rr *odhtypes.ReconciliationRequest) error {
 	if rr.Client == nil {
 		return fmt.Errorf("reconciliation client is nil")
@@ -87,7 +106,7 @@ func (m *Module) migrateMaasControllerSelector(ctx context.Context, rr *odhtypes
 		return fmt.Errorf("get maas-controller Deployment %s/%s: %w", m.cfg.ApplicationsNamespace, maasControllerDeploymentName, err)
 	}
 
-	if selectorHasRequiredLabels(dep, maasControllerRequiredSelectorLabels) {
+	if selectorHasRequiredLabels(dep, maasControllerRequiredSelectorLabels, maasControllerLegacySelectorLabelKeys) {
 		return nil
 	}
 
@@ -102,22 +121,37 @@ func (m *Module) migrateMaasControllerSelector(ctx context.Context, rr *odhtypes
 		"currentSelector", currentSelector,
 	)
 
-	if err := rr.Client.Delete(ctx, dep); err != nil && !k8serr.IsNotFound(err) {
+	// Guard against a Get/Delete race (CWE-367): if the Deployment was deleted
+	// and recreated (e.g. by a concurrent reconcile, GitOps tool, or manual
+	// kubectl action) between the Get above and this Delete, dep no longer
+	// refers to the live object. Preconditions make the Delete fail with a
+	// Conflict instead of removing whatever object now has this name — UID
+	// pins the exact object identity we read; ResourceVersion is included
+	// too since it's the only precondition the fake client honors in tests.
+	preconditions := &client.Preconditions{UID: &dep.UID, ResourceVersion: &dep.ResourceVersion}
+	if err := rr.Client.Delete(ctx, dep, preconditions); err != nil && !k8serr.IsNotFound(err) && !k8serr.IsConflict(err) {
 		return fmt.Errorf("delete maas-controller Deployment %s/%s with stale selector: %w", m.cfg.ApplicationsNamespace, maasControllerDeploymentName, err)
 	}
 
 	return nil
 }
 
-// selectorHasRequiredLabels reports whether required is a subset of the
-// Deployment's spec.selector.matchLabels.
-func selectorHasRequiredLabels(dep *appsv1.Deployment, required map[string]string) bool {
+// selectorHasRequiredLabels reports whether the Deployment's
+// spec.selector.matchLabels contains every key/value in required and none of
+// the keys listed in forbidden.
+func selectorHasRequiredLabels(dep *appsv1.Deployment, required map[string]string, forbidden []string) bool {
 	if dep.Spec.Selector == nil {
 		return false
 	}
 
 	for k, v := range required {
 		if dep.Spec.Selector.MatchLabels[k] != v {
+			return false
+		}
+	}
+
+	for _, k := range forbidden {
+		if _, present := dep.Spec.Selector.MatchLabels[k]; present {
 			return false
 		}
 	}
