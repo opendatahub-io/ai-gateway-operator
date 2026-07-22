@@ -157,6 +157,7 @@ func NewReconciler(
 			kustomize.WithLabel(labels.K8SCommon.PartOf, componentName),
 		)).
 		WithAction(m.annotateResource).
+		WithAction(m.migrateSelector).
 		WithAction(deploy.NewAction(
 			deploy.WithCache(),
 			deploy.WithApplyOrder(),
