@@ -24,6 +24,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	"github.com/opendatahub-io/opendatahub-operator/v2/pkg/cluster"
 	odhtypes "github.com/opendatahub-io/opendatahub-operator/v2/pkg/controller/types"
@@ -41,8 +42,9 @@ const (
 )
 
 var (
-	mtAITenantGVK     = schema.GroupVersionKind{Group: "maas.opendatahub.io", Version: "v1alpha1", Kind: "AITenant"}
-	mtAITenantListGVK = schema.GroupVersionKind{Group: "maas.opendatahub.io", Version: "v1alpha1", Kind: "AITenantList"}
+	mtAITenantGVK            = schema.GroupVersionKind{Group: "maas.opendatahub.io", Version: "v1alpha1", Kind: "AITenant"}
+	mtAITenantListGVK        = schema.GroupVersionKind{Group: "maas.opendatahub.io", Version: "v1alpha1", Kind: "AITenantList"}
+	mtAITenantWatchPredicate = predicate.ResourceVersionChangedPredicate{}
 
 	mtIPPRuntimeResourceNames = map[string]struct{}{
 		mtIPPPayloadProcessingName:    {},

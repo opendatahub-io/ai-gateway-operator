@@ -150,6 +150,7 @@ func NewReconciler(
 		WatchesGVK(
 			mtAITenantGVK,
 			reconciler.Dynamic(reconciler.CrdExists(mtAITenantGVK)),
+			reconciler.WithPredicates(mtAITenantWatchPredicate),
 			reconciler.WithEventMapper(func(_ context.Context, _ client.Object) []reconcile.Request {
 				return []reconcile.Request{{NamespacedName: types.NamespacedName{Name: componentApi.AIGatewayInstanceName}}}
 			}),

@@ -23,6 +23,7 @@ import (
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	odhtypes "github.com/opendatahub-io/opendatahub-operator/v2/pkg/controller/types"
 )
@@ -34,6 +35,19 @@ func TestMultitenantIPPResourceNames(t *testing.T) {
 	g.Expect(mtIPPResourceNameForGateway(mtIPPPayloadProcessingName, "gateway-a")).
 		To(Equal("payload-processing-gateway-a"))
 	g.Expect(mtIPPMaaSAPIRouteNameForTenant(mtIPPDefaultTenantName)).To(Equal(mtIPPMaaSAPIRouteName))
+}
+
+func TestMultitenantIPPAITenantWatchPredicate(t *testing.T) {
+	g := NewWithT(t)
+	pending := mtIPPTestAITenant("tenant-a", "Pending", "gateway-a")
+	pending.SetResourceVersion("1")
+	active := pending.DeepCopy()
+	active.SetResourceVersion("2")
+	g.Expect(unstructured.SetNestedField(active.Object, "Active", "status", "phase")).To(Succeed())
+
+	g.Expect(mtAITenantWatchPredicate.Create(event.CreateEvent{Object: &pending})).To(BeTrue())
+	g.Expect(mtAITenantWatchPredicate.Update(event.UpdateEvent{ObjectOld: &pending, ObjectNew: active})).To(BeTrue())
+	g.Expect(mtAITenantWatchPredicate.Delete(event.DeleteEvent{Object: active})).To(BeTrue())
 }
 
 func TestMultitenantIPPBindingsFromAITenants(t *testing.T) {
