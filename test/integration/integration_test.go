@@ -48,32 +48,31 @@ import (
 	"github.com/lburgazzoli/gomega-matchers/pkg/matchers/jq"
 	k8sm "github.com/lburgazzoli/gomega-matchers/pkg/matchers/k8s"
 
+	componentsv1alpha1 "github.com/opendatahub-io/ai-gateway-operator/api/components/v1alpha1"
 	aigatewaycontroller "github.com/opendatahub-io/ai-gateway-operator/internal/controller/aigateway"
 	moduleconfig "github.com/opendatahub-io/ai-gateway-operator/pkg/config"
 	"github.com/opendatahub-io/ai-gateway-operator/pkg/version"
-	componentsv1alpha1 "github.com/opendatahub-io/ai-gateway-operator/api/components/v1alpha1"
+	"github.com/opendatahub-io/ai-gateway-operator/test/support"
 	dsciv2 "github.com/opendatahub-io/opendatahub-operator/v2/api/dscinitialization/v2"
 	"github.com/opendatahub-io/opendatahub-operator/v2/pkg/cluster"
 	odhmanager "github.com/opendatahub-io/opendatahub-operator/v2/pkg/manager"
-	"github.com/opendatahub-io/ai-gateway-operator/test/support"
 )
 
 const (
 	timeout  = 90 * time.Second
 	interval = 2 * time.Second
 
-	moduleCRDName              = "aigateways.components.platform.opendatahub.io"
-	batchGatewayOperatorName   = "llm-d-batch-gateway-operator"
+	moduleCRDName            = "aigateways.components.platform.opendatahub.io"
+	batchGatewayOperatorName = "llm-d-batch-gateway-operator"
 )
 
 var (
-	ctx                    context.Context
-	cancel                 context.CancelFunc
-	k8sClient              client.Client
-	k                      *k8sm.Matcher
-	operatorCfgData        map[string]string
-	operatorReleaseVersion string
-	testScheme             = runtime.NewScheme()
+	ctx             context.Context
+	cancel          context.CancelFunc
+	k8sClient       client.Client
+	k               *k8sm.Matcher
+	operatorCfgData map[string]string
+	testScheme      = runtime.NewScheme()
 )
 
 func init() {
@@ -136,7 +135,6 @@ func runTestMain(m *testing.M) int {
 		ApplicationsNamespace: testNamespace,
 		ManifestsPath:         support.MustProjectFile("config", "manifests"),
 	}
-	operatorReleaseVersion = moduleCfg.Release().Version.String()
 
 	ctrlMgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme:         testScheme,
@@ -321,10 +319,8 @@ func (rt *aiGatewayTest) testModuleStatus(t *testing.T) {
 		jq.Match(`.status.module.version == "%s"`, version.Version),
 		jq.Match(`.status.module.buildSource == "%s@%s/%s"`,
 			version.Repo, version.Branch, version.Commit),
-		jq.Match(`.status.module.platform.name == "%s"`,
+		jq.Match(`.status.module.platform == "%s"`,
 			operatorCfgData[moduleconfig.KeyPlatformType]),
-		jq.Match(`.status.module.platform.version == "%s"`,
-			operatorReleaseVersion),
 		jq.Match(`.status.module.sources | length > 0`),
 		jq.Match(`.status.module.sources[0].path != ""`),
 		jq.Match(`.status.module.sources[0].renderer == "kustomize"`),
@@ -418,7 +414,7 @@ func (rt *aiGatewayTest) testReleasesPopulated(t *testing.T) {
 
 	g.Eventually(k.Get(rt.module)).WithContext(ctx).WithTimeout(timeout).WithPolling(interval).Should(And(
 		jq.Match(`.status.releases | length > 0`),
-		jq.Match(`.status.releases[0].name == "LLM-D AI Gateway Operator"`),
+		jq.Match(`.status.releases[0].name == "AI Gateway Operator"`),
 		jq.Match(`.status.releases[0].version != ""`),
 	))
 }

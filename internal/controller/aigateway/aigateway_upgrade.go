@@ -32,11 +32,13 @@ func (m *Module) upgradeIfNeeded(ctx context.Context, rr *odhtypes.Reconciliatio
 
 	prev := obj.Status.Module
 
+	// Platform-version upgrade detection is intentionally omitted: the platform
+	// version now lives only in status.releases (the ConfigMap-sourced upgrade
+	// handshake). When upgrade() does real work, compare against that entry
+	// rather than rr.Release, which is not reliably populated in this operator.
 	moduleVersionChanged := !prev.Version.IsZero() && m.version.GT(prev.Version)
-	platformVersionChanged := !prev.Platform.Version.IsZero() &&
-		componentApi.SemVer(rr.Release.Version.String()).GT(prev.Platform.Version)
 
-	if !moduleVersionChanged && !platformVersionChanged {
+	if !moduleVersionChanged {
 		return nil
 	}
 

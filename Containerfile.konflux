@@ -22,6 +22,7 @@ COPY pkg/ pkg/
 
 COPY config/manifests/batchgateway/ config/manifests/batchgateway/
 COPY config/manifests/maascontroller/ config/manifests/maascontroller/
+COPY config/component_metadata.yaml config/manifests/ai-gateway-operator/component_metadata.yaml
 
 RUN VERSION_PKG="github.com/opendatahub-io/ai-gateway-operator/pkg/version" && \
     if [ -z "${LDFLAGS}" ] && [ -n "${GIT_COMMIT}" ]; then \
