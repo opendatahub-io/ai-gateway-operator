@@ -24,6 +24,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	"github.com/opendatahub-io/opendatahub-operator/v2/pkg/cluster"
@@ -44,6 +45,7 @@ const (
 var (
 	mtAITenantGVK            = schema.GroupVersionKind{Group: "maas.opendatahub.io", Version: "v1alpha1", Kind: "AITenant"}
 	mtAITenantListGVK        = schema.GroupVersionKind{Group: "maas.opendatahub.io", Version: "v1alpha1", Kind: "AITenantList"}
+	mtGatewayListGVK         = schema.GroupVersionKind{Group: "gateway.networking.k8s.io", Version: "v1", Kind: "GatewayList"}
 	mtAITenantWatchPredicate = predicate.ResourceVersionChangedPredicate{}
 
 	mtIPPRuntimeResourceNames = map[string]struct{}{
@@ -94,10 +96,29 @@ func activeMultitenantIPPBindings(
 		return nil, true, fmt.Errorf("list AITenants: %w", err)
 	}
 
-	return multitenantIPPBindingsFromAITenants(list.Items), true, nil
+	gateways := &unstructured.UnstructuredList{}
+	gateways.SetGroupVersionKind(mtGatewayListGVK)
+	if err := rr.Client.List(ctx, gateways); err != nil {
+		return nil, true, fmt.Errorf("list Gateways: %w", err)
+	}
+
+	return multitenantIPPBindingsFromAITenants(list.Items, gateways.Items), true, nil
 }
 
-func multitenantIPPBindingsFromAITenants(items []unstructured.Unstructured) []mtIPPGatewayBinding {
+func multitenantIPPBindingsFromAITenants(
+	items []unstructured.Unstructured,
+	gateways []unstructured.Unstructured,
+) []mtIPPGatewayBinding {
+	existingGateways := make(map[types.NamespacedName]struct{}, len(gateways))
+	for i := range gateways {
+		if gateways[i].GetDeletionTimestamp().IsZero() {
+			existingGateways[types.NamespacedName{
+				Namespace: gateways[i].GetNamespace(),
+				Name:      gateways[i].GetName(),
+			}] = struct{}{}
+		}
+	}
+
 	bindings := make([]mtIPPGatewayBinding, 0, len(items))
 	bindingIndexes := make(map[string]int, len(items))
 	for i := range items {
@@ -113,7 +134,12 @@ func multitenantIPPBindingsFromAITenants(items []unstructured.Unstructured) []mt
 			continue
 		}
 
-		key := gatewayNamespace + "/" + gatewayName
+		gateway := types.NamespacedName{Namespace: gatewayNamespace, Name: gatewayName}
+		if _, found := existingGateways[gateway]; !found {
+			continue
+		}
+
+		key := gateway.String()
 		if index, found := bindingIndexes[key]; found {
 			bindings[index].TenantNames = append(bindings[index].TenantNames, item.GetName())
 			continue
@@ -121,8 +147,8 @@ func multitenantIPPBindingsFromAITenants(items []unstructured.Unstructured) []mt
 
 		bindingIndexes[key] = len(bindings)
 		bindings = append(bindings, mtIPPGatewayBinding{
-			GatewayName:      gatewayName,
-			GatewayNamespace: gatewayNamespace,
+			GatewayName:      gateway.Name,
+			GatewayNamespace: gateway.Namespace,
 			TenantNames:      []string{item.GetName()},
 		})
 	}

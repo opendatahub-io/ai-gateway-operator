@@ -52,15 +52,22 @@ func TestMultitenantIPPAITenantWatchPredicate(t *testing.T) {
 
 func TestMultitenantIPPBindingsFromAITenants(t *testing.T) {
 	g := NewWithT(t)
-	deleting := mtIPPTestAITenant("deleting", "Active", "gateway-c")
+	deletingTenant := mtIPPTestAITenant("deleting", "Active", "gateway-c")
 	now := metav1.Now()
-	deleting.SetDeletionTimestamp(&now)
+	deletingTenant.SetDeletionTimestamp(&now)
+	deletingGateway := mtIPPTestGateway("gateway-c")
+	deletingGateway.SetDeletionTimestamp(&now)
 
 	g.Expect(multitenantIPPBindingsFromAITenants([]unstructured.Unstructured{
 		mtIPPTestAITenant("tenant-a", "Active", "gateway-a"),
 		mtIPPTestAITenant("tenant-b", "Active", "gateway-a"),
 		mtIPPTestAITenant("pending", "Pending", "gateway-pending"),
-		deleting,
+		mtIPPTestAITenant("stale", "Active", "gateway-missing"),
+		deletingTenant,
+		mtIPPTestAITenant("terminating-gateway", "Active", "gateway-c"),
+	}, []unstructured.Unstructured{
+		mtIPPTestGateway("gateway-a"),
+		deletingGateway,
 	})).To(Equal([]mtIPPGatewayBinding{{
 		GatewayName:      "gateway-a",
 		GatewayNamespace: "openshift-ingress",
@@ -123,6 +130,10 @@ func TestMaasAwareGCPredicateRemovesOnlyStaleMultitenantIPPResources(t *testing.
 	deletable, err = (&Module{}).maasAwareGCPredicate(rr, candidate)
 	g.Expect(err).NotTo(HaveOccurred())
 	g.Expect(deletable).To(BeTrue())
+}
+
+func mtIPPTestGateway(name string) unstructured.Unstructured {
+	return mtIPPTestResource("gateway.networking.k8s.io/v1", "Gateway", "openshift-ingress", name, nil)
 }
 
 func mtIPPTestAITenant(name, phase, gatewayName string) unstructured.Unstructured {
