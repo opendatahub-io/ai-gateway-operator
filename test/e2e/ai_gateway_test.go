@@ -106,7 +106,7 @@ func testModuleStatus(t *testing.T) {
 		jq.Match(`.status.module.version == "%s"`, version.Version),
 		jq.Match(`.status.module.buildSource == "%s@%s/%s"`,
 			version.Repo, version.Branch, version.Commit),
-		jq.Match(`.status.module.platform.name == "%s"`, platformType),
+		jq.Match(`.status.module.platform == "%s"`, platformType),
 		jq.Match(`.status.module.sources | length > 0`),
 		jq.Match(`.status.module.sources[0].path != ""`),
 		jq.Match(`.status.module.sources[0].renderer == "kustomize"`),

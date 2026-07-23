@@ -35,16 +35,8 @@ type SourceStatus struct {
 	Renderer SourceRenderer `json:"renderer"`
 }
 
-// PlatformStatus reports the detected platform identity and version.
-// +kubebuilder:object:generate=true
-type PlatformStatus struct {
-	// Name is the platform identifier (e.g. OpenDataHub, SelfManagedRHOAI).
-	Name string `json:"name"`
-	// Version is the platform operator version.
-	Version SemVer `json:"version,omitempty"`
-}
-
 // ModuleStatus reports the module operator's runtime information.
+// The platform version is reported separately via status.releases.
 // +kubebuilder:object:generate=true
 type ModuleStatus struct {
 	// Version is the module operator version.
@@ -52,8 +44,9 @@ type ModuleStatus struct {
 	// BuildSource identifies the source the operator was built from
 	// in the format repo@branch/commit (e.g. github.com/org/repo@main/abc1234).
 	BuildSource string `json:"buildSource,omitempty"`
-	// Platform reports the detected platform identity and version.
-	Platform PlatformStatus `json:"platform,omitempty"`
+	// Platform is the detected platform identifier (e.g. OpenShift AI Self-Managed).
+	// The platform version is reported separately via status.releases.
+	Platform string `json:"platform,omitempty"`
 	// Sources lists the manifest sources loaded during reconciliation.
 	Sources []SourceStatus `json:"sources,omitempty"`
 }

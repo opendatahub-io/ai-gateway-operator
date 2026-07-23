@@ -28,6 +28,7 @@ COPY pkg/ pkg/
 # only the sub-modules need to be copied here
 COPY config/manifests/batchgateway/ config/manifests/batchgateway/
 COPY config/manifests/maascontroller/ config/manifests/maascontroller/
+COPY config/component_metadata.yaml config/manifests/ai-gateway-operator/component_metadata.yaml
 
 # Generated code and manifests come from the host (make container-prep).
 # Only compile the manager binary inside the image.
