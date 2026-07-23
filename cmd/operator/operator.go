@@ -17,12 +17,20 @@ limitations under the License.
 package operator
 
 import (
+	"context"
+	"crypto/tls"
+	"errors"
 	"fmt"
+"time"
 
+	configv1 "github.com/openshift/api/config/v1"
+	tlspkg "github.com/openshift/controller-runtime-common/pkg/tls"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -52,6 +60,7 @@ var scheme = runtime.NewScheme()
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(apiextensionsv1.AddToScheme(scheme))
+	utilruntime.Must(configv1.Install(scheme))
 	utilruntime.Must(componentsv1alpha1.AddToScheme(scheme))
 	utilruntime.Must(dsciv2.AddToScheme(scheme))
 }
@@ -75,16 +84,63 @@ func run(cmd *cobra.Command, _ []string) error {
 	}
 
 	ctrl.SetLogger(zap.New(zap.UseDevMode(false)))
+	log := ctrl.Log.WithName("setup")
 
 	// Set the applications namespace so that the operator's kustomize render
 	// action can determine the target namespace without requiring DSCI.
 	viper.Set("rhai-applications-namespace", cfg.ApplicationsNamespace)
 	cluster.SetRHAIApplicationNamespace(cfg.ApplicationsNamespace)
 
+	// Fetch cluster TLS profile to configure secure metrics serving.
+	restCfg := ctrl.GetConfigOrDie()
+
+	bootstrapClient, err := client.New(restCfg, client.Options{Scheme: scheme})
+	if err != nil {
+		return fmt.Errorf("creating bootstrap client: %w", err)
+	}
+
+	bootstrapCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	var tlsOpts []func(*tls.Config)
+
+	profile, err := tlspkg.FetchAPIServerTLSProfile(bootstrapCtx, bootstrapClient)
+	if err != nil {
+		switch {
+		case apimeta.IsNoMatchError(err):
+			log.Info("TLS profile not available (non-OpenShift cluster)")
+		case apierrors.IsNotFound(err):
+			log.Info("APIServer resource not found, using defaults")
+		case apierrors.IsServiceUnavailable(err),
+			apierrors.IsTimeout(err),
+			apierrors.IsServerTimeout(err),
+			apierrors.IsTooManyRequests(err),
+			errors.Is(err, context.DeadlineExceeded):
+			log.Info("Transient API error, using Intermediate defaults", "error", err)
+		default:
+			return fmt.Errorf("unable to read TLS profile: %w", err)
+		}
+
+		profile = *configv1.TLSProfiles[configv1.TLSProfileIntermediateType]
+	}
+
+	tlsConfigFn, unsupported := tlspkg.NewTLSConfigFromProfile(profile)
+	if len(unsupported) > 0 {
+		log.Info("TLS profile contains unsupported ciphers", "unsupported", unsupported)
+	}
+
+	tlsOpts = append(tlsOpts, tlsConfigFn)
+	tlsOpts = append(tlsOpts, func(c *tls.Config) {
+		c.NextProtos = []string{"h2", "http/1.1"}
+	})
+
 	mgrOpts := ctrl.Options{
 		Scheme: scheme,
 		Metrics: metricsserver.Options{
-			BindAddress: cfg.MetricsAddr,
+			BindAddress:   cfg.MetricsAddr,
+			SecureServing: true,
+			CertDir:       "/tmp/k8s-metrics-server/metrics-certs",
+			TLSOpts:       tlsOpts,
 		},
 		HealthProbeBindAddress:        cfg.HealthProbeAddr,
 		PprofBindAddress:              cfg.PprofAddr,
@@ -121,7 +177,7 @@ func run(cmd *cobra.Command, _ []string) error {
 		},
 	}
 
-	ctrlMgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), mgrOpts)
+	ctrlMgr, err := ctrl.NewManager(restCfg, mgrOpts)
 	if err != nil {
 		return fmt.Errorf("creating manager: %w", err)
 	}
