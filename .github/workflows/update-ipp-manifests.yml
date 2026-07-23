@@ -1,0 +1,197 @@
+# Update IPP Manifests
+#
+# Tracks manifest changes in the ODH and RHDS ai-gateway-payload-processing
+# repositories. Updates immutable pins and the vendored IPP manifest tree in a
+# single pull request.
+
+name: Update IPP Manifests
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+    inputs:
+      upstream_branch:
+        description: Upstream branch to track
+        required: false
+        default: main
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: update-ipp-manifests
+  cancel-in-progress: true
+
+env:
+  ODH_UPSTREAM_REPO: opendatahub-io/ai-gateway-payload-processing
+  RHDS_UPSTREAM_REPO: red-hat-data-services/ai-gateway-payload-processing
+  UPDATE_BRANCH: chore/update-ipp-manifests
+  GH_USER_NAME: github-actions[bot]
+  GH_USER_EMAIL: github-actions[bot]@users.noreply.github.com
+
+jobs:
+  update:
+    name: Update IPP manifest pins
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve manifest commits
+        id: commits
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPSTREAM_BRANCH: ${{ inputs.upstream_branch || 'main' }}
+        run: |
+          set -euo pipefail
+
+          mapfile -t IPP_ENTRIES < <(
+            sed -nE 's/^[[:space:]]*\[ipp\]="([^"]+)"$/\1/p' \
+              hack/scripts/get-manifests.sh
+          )
+          if [ "${#IPP_ENTRIES[@]}" -ne 1 ]; then
+            echo "::error::Expected exactly one IPP entry in hack/scripts/get-manifests.sh"
+            exit 1
+          fi
+
+          IFS='|' read -r REPO_NAME SOURCE_PATH CURRENT_ODH CURRENT_RHDS \
+            <<< "${IPP_ENTRIES[0]}"
+          if [ "$REPO_NAME" != "ai-gateway-payload-processing" ] ||
+             [ "$SOURCE_PATH" != "config" ]; then
+            echo "::error::Unexpected IPP manifest source: ${IPP_ENTRIES[0]}"
+            exit 1
+          fi
+
+          resolve_latest() {
+            local repository="$1"
+            gh api --method GET "repos/${repository}/commits" \
+              -f sha="$UPSTREAM_BRANCH" \
+              -f path="$SOURCE_PATH" \
+              -f per_page=1 \
+              --jq '.[0].sha // empty'
+          }
+
+          LATEST_ODH="$(resolve_latest "$ODH_UPSTREAM_REPO")"
+          LATEST_RHDS="$(resolve_latest "$RHDS_UPSTREAM_REPO")"
+
+          for PIN in "$CURRENT_ODH" "$CURRENT_RHDS" "$LATEST_ODH" "$LATEST_RHDS"; do
+            if ! [[ "$PIN" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "::error::Invalid IPP commit SHA: '${PIN}'"
+              exit 1
+            fi
+          done
+
+          manifests_ready() {
+            local repository="$1"
+            local commit="$2"
+            gh api --method GET \
+              "repos/${repository}/contents/config/base/kustomization.yaml" \
+              -f ref="$commit" >/dev/null 2>&1
+          }
+
+          if ! manifests_ready "$ODH_UPSTREAM_REPO" "$LATEST_ODH" ||
+             ! manifests_ready "$RHDS_UPSTREAM_REPO" "$LATEST_RHDS"; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::The complete IPP manifest tree is not available in both upstream branches yet"
+            exit 0
+          fi
+
+          echo "current_odh=${CURRENT_ODH}" >> "$GITHUB_OUTPUT"
+          echo "current_rhds=${CURRENT_RHDS}" >> "$GITHUB_OUTPUT"
+          echo "latest_odh=${LATEST_ODH}" >> "$GITHUB_OUTPUT"
+          echo "latest_rhds=${LATEST_RHDS}" >> "$GITHUB_OUTPUT"
+          echo "upstream_branch=${UPSTREAM_BRANCH}" >> "$GITHUB_OUTPUT"
+
+          if [ "$CURRENT_ODH" = "$LATEST_ODH" ] &&
+             [ "$CURRENT_RHDS" = "$LATEST_RHDS" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "IPP manifest pins are already up to date."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Update pins and manifests
+        if: steps.commits.outputs.skip != 'true'
+        env:
+          LATEST_ODH: ${{ steps.commits.outputs.latest_odh }}
+          LATEST_RHDS: ${{ steps.commits.outputs.latest_rhds }}
+        run: |
+          set -euo pipefail
+
+          sed -i -E \
+            "s#^([[:space:]]*)\\[ipp\\]=\"[^\"]+\"#\\1[ipp]=\"ai-gateway-payload-processing|config|${LATEST_ODH}|${LATEST_RHDS}\"#" \
+            hack/scripts/get-manifests.sh
+
+          make get-manifests
+          git diff --check
+
+      - name: Create or update pull request
+        if: steps.commits.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CURRENT_ODH: ${{ steps.commits.outputs.current_odh }}
+          CURRENT_RHDS: ${{ steps.commits.outputs.current_rhds }}
+          LATEST_ODH: ${{ steps.commits.outputs.latest_odh }}
+          LATEST_RHDS: ${{ steps.commits.outputs.latest_rhds }}
+          UPSTREAM_BRANCH: ${{ steps.commits.outputs.upstream_branch }}
+        run: |
+          set -euo pipefail
+
+          git config user.name "$GH_USER_NAME"
+          git config user.email "$GH_USER_EMAIL"
+
+          if git ls-remote --exit-code --heads origin "$UPDATE_BRANCH" >/dev/null 2>&1; then
+            git fetch origin \
+              "+refs/heads/${UPDATE_BRANCH}:refs/remotes/origin/${UPDATE_BRANCH}"
+          fi
+
+          git checkout -B "$UPDATE_BRANCH"
+          git add hack/scripts/get-manifests.sh config/manifests/ipp/
+          git commit \
+            -m "chore: update IPP manifest pins" \
+            -m "Update immutable ODH and RHDS manifest commits and refresh the vendored IPP tree."
+          git push --force-with-lease origin "HEAD:refs/heads/${UPDATE_BRANCH}"
+
+          BODY_FILE="$(mktemp)"
+          {
+            echo "## Update IPP manifests"
+            echo
+            echo "Automated update of the immutable IPP manifest pins and vendored manifest tree."
+            echo
+            echo "| Platform | Previous | New |"
+            echo "| --- | --- | --- |"
+            echo "| ODH | [\`${CURRENT_ODH}\`](https://github.com/${ODH_UPSTREAM_REPO}/commit/${CURRENT_ODH}) | [\`${LATEST_ODH}\`](https://github.com/${ODH_UPSTREAM_REPO}/commit/${LATEST_ODH}) |"
+            echo "| RHDS | [\`${CURRENT_RHDS}\`](https://github.com/${RHDS_UPSTREAM_REPO}/commit/${CURRENT_RHDS}) | [\`${LATEST_RHDS}\`](https://github.com/${RHDS_UPSTREAM_REPO}/commit/${LATEST_RHDS}) |"
+            echo
+            echo "- [View ODH changes](https://github.com/${ODH_UPSTREAM_REPO}/compare/${CURRENT_ODH}...${LATEST_ODH})"
+            echo "- [View RHDS changes](https://github.com/${RHDS_UPSTREAM_REPO}/compare/${CURRENT_RHDS}...${LATEST_RHDS})"
+            echo "- Upstream branch: \`${UPSTREAM_BRANCH}\`"
+          } > "$BODY_FILE"
+
+          EXISTING_PR_NUMBER="$(
+            gh pr list \
+              --head "$UPDATE_BRANCH" \
+              --state open \
+              --json number \
+              --jq '.[0].number // empty'
+          )"
+          if [ -n "$EXISTING_PR_NUMBER" ]; then
+            gh pr edit "$EXISTING_PR_NUMBER" \
+              --title "chore: update IPP manifest pins" \
+              --body-file "$BODY_FILE"
+          else
+            gh pr create \
+              --base main \
+              --head "$UPDATE_BRANCH" \
+              --title "chore: update IPP manifest pins" \
+              --body-file "$BODY_FILE"
+          fi

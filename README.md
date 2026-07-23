@@ -17,11 +17,19 @@ A Kubernetes operator that manages AI Gateway components for [Open Data Hub](htt
 
 This operator vendors manifests from sub-components into `config/manifests/`. These files are checked into the repository because the container build expects them in the source tree (`COPY config/manifests/` in the Containerfile).
 
+The component keys in `hack/scripts/get-manifests.sh` are:
+
+- `batchgateway`
+- `ipp`
+- `maascontroller`
+
 When a sub-component's manifests change, update the vendored copy:
 
-1. Edit `hack/scripts/get-manifests.sh` and update the commit SHA for the component.
+1. Edit `hack/scripts/get-manifests.sh` and update the ODH and RHDS commit SHAs for the component.
 2. Run `make get-manifests` to fetch the manifests at the pinned commit.
 3. Commit both `hack/scripts/get-manifests.sh` and `config/manifests/` changes together.
+
+IPP updates are also proposed automatically by the `Update IPP Manifests` GitHub Actions workflow. The workflow tracks upstream changes under `config/` and opens or updates a pull request containing both SHA pins and the refreshed `config/manifests/ipp/` tree.
 
 ## References
 
