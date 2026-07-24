@@ -46,7 +46,8 @@ type ModuleStatus struct {
 	BuildSource string `json:"buildSource,omitempty"`
 	// Platform is the detected platform identifier (e.g. OpenShift AI Self-Managed).
 	// The platform version is reported separately via status.releases.
-	Platform string `json:"platform,omitempty"`
+	// Accepts the legacy object form {"name","version"} on read for upgrade safety.
+	Platform PlatformName `json:"platform,omitempty"`
 	// Sources lists the manifest sources loaded during reconciliation.
 	Sources []SourceStatus `json:"sources,omitempty"`
 }
