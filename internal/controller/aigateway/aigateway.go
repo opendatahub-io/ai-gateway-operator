@@ -348,7 +348,7 @@ func (m *Module) reportStatus(ctx context.Context, rr *odhtypes.ReconciliationRe
 	obj.Status.Module = componentApi.ModuleStatus{
 		Version:     m.version,
 		BuildSource: version.Repo + "@" + version.Branch + "/" + version.Commit,
-		Platform:    string(rr.Release.Name),
+		Platform:    componentApi.PlatformName(rr.Release.Name),
 	}
 
 	var sources []componentApi.SourceStatus
