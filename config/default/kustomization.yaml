@@ -6,6 +6,7 @@ resources:
 - namespace.yaml
 - ../crd
 - ../rbac
+- ../rbac/tls
 - ../manager
 - metrics_service.yaml
 

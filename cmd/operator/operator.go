@@ -104,6 +104,7 @@ func run(cmd *cobra.Command, _ []string) error {
 
 	var tlsOpts []func(*tls.Config)
 
+	tlsProfileFetched := false
 	profile, err := tlspkg.FetchAPIServerTLSProfile(bootstrapCtx, bootstrapClient)
 	if err != nil {
 		switch {
@@ -117,11 +118,14 @@ func run(cmd *cobra.Command, _ []string) error {
 			apierrors.IsTooManyRequests(err),
 			errors.Is(err, context.DeadlineExceeded):
 			log.Info("Transient API error, using Intermediate defaults", "error", err)
+			tlsProfileFetched = true
 		default:
 			return fmt.Errorf("unable to read TLS profile: %w", err)
 		}
 
 		profile = *configv1.TLSProfiles[configv1.TLSProfileIntermediateType]
+	} else {
+		tlsProfileFetched = true
 	}
 
 	tlsConfigFn, unsupported := tlspkg.NewTLSConfigFromProfile(profile)
@@ -130,6 +134,15 @@ func run(cmd *cobra.Command, _ []string) error {
 	}
 
 	tlsOpts = append(tlsOpts, tlsConfigFn)
+
+	tlsAdherenceFetched := false
+	tlsAdherence, adherenceErr := tlspkg.FetchAPIServerTLSAdherencePolicy(bootstrapCtx, bootstrapClient)
+	if adherenceErr != nil {
+		log.Info("unable to fetch TLS adherence policy, watcher will retry", "error", adherenceErr)
+	} else {
+		tlsAdherenceFetched = true
+	}
+
 	tlsOpts = append(tlsOpts, func(c *tls.Config) {
 		c.NextProtos = []string{"h2", "http/1.1"}
 	})
@@ -206,5 +219,29 @@ func run(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("setting up ready check: %w", err)
 	}
 
-	return mgr.Start(cmd.Context())
+	ctx, cancel := context.WithCancel(cmd.Context())
+	defer cancel()
+
+	if tlsProfileFetched {
+		watcher := &tlspkg.SecurityProfileWatcher{
+			Client:                mgr.GetClient(),
+			InitialTLSProfileSpec: profile,
+			OnProfileChange: func(_ context.Context, _, _ configv1.TLSProfileSpec) {
+				log.Info("TLS profile changed, initiating shutdown to reload")
+				cancel()
+			},
+		}
+		if tlsAdherenceFetched {
+			watcher.InitialTLSAdherencePolicy = tlsAdherence
+			watcher.OnAdherencePolicyChange = func(_ context.Context, _, _ configv1.TLSAdherencePolicy) {
+				log.Info("TLS adherence policy changed, initiating shutdown to reload")
+				cancel()
+			}
+		}
+		if err := watcher.SetupWithManager(mgr); err != nil {
+			return fmt.Errorf("setting up TLS profile watcher: %w", err)
+		}
+	}
+
+	return mgr.Start(ctx)
 }
