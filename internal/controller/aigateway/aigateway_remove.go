@@ -149,6 +149,10 @@ func (m *Module) maasAwareGCPredicate(rr *odhtypes.ReconciliationRequest, obj un
 		return deletable, err
 	}
 
+	if isMultitenantIPPManagedResource(obj) {
+		return !multitenantIPPResourceIsDesired(rr, obj), nil
+	}
+
 	if obj.GetLabels()[maasCRDComponentLabelKey] != maasCRDComponentLabelValue {
 		return false, nil
 	}
