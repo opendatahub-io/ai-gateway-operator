@@ -248,15 +248,6 @@ rules:
   - update
   - watch
 - apiGroups:
-  - config.openshift.io
-  resources:
-  - apiservers
-  - authentications
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
   - coordination.k8s.io
   resources:
   - leases

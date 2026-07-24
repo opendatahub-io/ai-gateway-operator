@@ -6,10 +6,14 @@ resources:
 - namespace.yaml
 - ../crd
 - ../rbac
+- ../rbac/tls
 - ../manager
 - metrics_service.yaml
 
 patches:
 - path: manager_metrics_patch.yaml
+  target:
+    kind: Deployment
+- path: cert_metrics_manager_patch.yaml
   target:
     kind: Deployment

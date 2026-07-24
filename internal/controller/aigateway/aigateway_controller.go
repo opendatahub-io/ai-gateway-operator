@@ -96,7 +96,7 @@ import (
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=create;delete;get
 // +kubebuilder:rbac:groups=components.platform.opendatahub.io,resources=modelsasservices,verbs=get;list;patch;update;watch
 // +kubebuilder:rbac:groups=components.platform.opendatahub.io,resources=modelsasservices/status,verbs=get;patch;update
-// +kubebuilder:rbac:groups=config.openshift.io,resources=apiservers;authentications,verbs=get;list;watch
+// OpenShift TLS profile RBAC is in config/rbac/tls/ (separate overlay for xKS compatibility)
 // +kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups=discovery.k8s.io,resources=endpointslices,verbs=list;watch
 // +kubebuilder:rbac:groups=extensions.kuadrant.io,resources=telemetrypolicies,verbs=create;delete;get;list;patch;watch
