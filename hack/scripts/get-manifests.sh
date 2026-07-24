@@ -67,7 +67,7 @@ fetch_component() {
 # RHDS commits: https://github.com/red-hat-data-services/<repo_name>/commits/
 
 declare -A COMPONENTS=(
-    [batchgateway]="llm-d-batch-gateway-operator|config|e46c47762c36a352a989e7b7deedb66be542b632|03d20a379b7aac680d2a053e008474c0c05d856c"
+    [batchgateway]="llm-d-batch-gateway-operator|config|12ef6a379f5bdf963d3c0397c5602078960cd5bf|521168da9f10e0aee2fc48555ed77144701a9a04"
     [maascontroller]="models-as-a-service|deployment/base/maas-controller|0c69ae5dd27e41342da2c6aeea710c75f5b81331|0c69ae5dd27e41342da2c6aeea710c75f5b81331"
 )
 
