@@ -13,9 +13,11 @@ on:
     inputs:
       upstream_branch:
         description: Upstream branch to track
-        required: false
+        required: true
         default: main
-        type: string
+        type: choice
+        options:
+          - main
 
 permissions: {}
 
@@ -53,6 +55,14 @@ jobs:
           UPSTREAM_BRANCH: ${{ inputs.upstream_branch || 'main' }}
         run: |
           set -euo pipefail
+
+          case "$UPSTREAM_BRANCH" in
+            main) ;;
+            *)
+              echo "::error::Unsupported upstream branch: $UPSTREAM_BRANCH"
+              exit 1
+              ;;
+          esac
 
           mapfile -t IPP_ENTRIES < <(
             sed -nE 's/^[[:space:]]*\[ipp\]="([^"]+)"$/\1/p' \
