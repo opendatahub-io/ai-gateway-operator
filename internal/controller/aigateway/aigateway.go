@@ -19,6 +19,7 @@ package aigateway
 import (
 	"context"
 	"fmt"
+	"os"
 	"sort"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -114,7 +115,7 @@ func NewModule(cfg *moduleconfig.Config) (*Module, error) {
 		return nil, fmt.Errorf("failed to update images on path %s: %w", batchMI, err)
 	}
 
-	maasSourcePath := "base"
+	maasSourcePath := "default"
 	if cfg.PlatformType == string(cluster.XKS) {
 		maasSourcePath = "overlays/xks"
 	}
@@ -173,14 +174,12 @@ func (m *Module) initialize(ctx context.Context, rr *odhtypes.ReconciliationRequ
 			return fmt.Errorf("reconciliation client is nil")
 		}
 
-		monitoringNamespace, err := cluster.MonitoringNamespace(ctx, rr.Client)
-		if err != nil {
-			// DSCI (DSCInitialization) is OpenShift-specific and may not exist in Kind clusters
-			// or standalone deployments. When DSCI is unavailable, we use the default value
-			// already present in params.env. This ensures MaaS deployment succeeds on all
-			// platform types.
-			monitoringNamespace = ""
-		}
+		// opendatahub-operator injects MONITORING_NAMESPACE (sourced from
+		// DSCI.Spec.Monitoring.Namespace) onto this Deployment's container env
+		// as part of its module env-injection contract. When absent (e.g. this
+		// operator running standalone without ODH orchestration), fall back to
+		// the default value already present in params.env.
+		monitoringNamespace := os.Getenv("MONITORING_NAMESPACE")
 
 		infraNs := deriveInfrastructureNamespace(m.cfg.ApplicationsNamespace)
 		params := map[string]string{
