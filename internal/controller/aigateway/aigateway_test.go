@@ -750,7 +750,7 @@ func TestReportStatus(t *testing.T) {
 	g.Expect(m.reportStatus(context.Background(), rr)).To(Succeed())
 
 	g.Expect(obj.Status.Module.Version.String()).To(Equal(version.Version))
-	g.Expect(obj.Status.Module.Platform).To(Equal("OpenDataHub"))
+	g.Expect(obj.Status.Module.Platform).To(Equal(componentApi.PlatformName("OpenDataHub")))
 	g.Expect(obj.Status.Module.Sources).To(HaveLen(1))
 	g.Expect(obj.Status.Module.Sources[0].Renderer).To(Equal(componentApi.SourceRendererKustomize))
 	// No platform ConfigMap → no platform release entry.
