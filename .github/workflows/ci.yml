@@ -123,7 +123,7 @@ jobs:
           done
           echo ""
           echo "=== Batch-gateway operator logs ==="
-          kubectl logs -n "${NS}" -l app.kubernetes.io/name=llm-d-batch-gateway-operator --all-containers=true --tail=100 2>/dev/null || true
+          kubectl logs -n "${NS}" -l app.kubernetes.io/name=batch-gateway-operator --tail=100 2>/dev/null || true
           echo ""
           echo "=== Events ==="
           kubectl get events -n "${NS}" --sort-by='.lastTimestamp' 2>/dev/null || true
