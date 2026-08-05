@@ -24,8 +24,6 @@ import (
 
 	. "github.com/onsi/gomega"
 	"github.com/opendatahub-io/opendatahub-operator/v2/api/common"
-	dsciv2 "github.com/opendatahub-io/opendatahub-operator/v2/api/dscinitialization/v2"
-	serviceApi "github.com/opendatahub-io/opendatahub-operator/v2/api/services/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -129,7 +127,7 @@ func TestNewModule(t *testing.T) {
 	g.Expect(m.batchGatewayManifestInfo.ContextDir).To(Equal("batchgateway"))
 	g.Expect(m.batchGatewayManifestInfo.SourcePath).To(Equal("base"))
 	g.Expect(m.maasManifestInfo.ContextDir).To(Equal("maascontroller"))
-	g.Expect(m.maasManifestInfo.SourcePath).To(Equal("base"))
+	g.Expect(m.maasManifestInfo.SourcePath).To(Equal("default"))
 }
 
 func TestNewModuleXKS(t *testing.T) {
@@ -244,28 +242,39 @@ func TestInitializeRemovedExcludesMaaSOnceTeardownCompleted(t *testing.T) {
 func TestInitializeManagedMaaS(t *testing.T) {
 	g := NewWithT(t)
 
+	// opendatahub-operator injects MONITORING_NAMESPACE onto this Deployment's
+	// container env (see modules_controller_actions_inject_env.go); no DSCI
+	// lookup is performed here anymore.
+	t.Setenv("MONITORING_NAMESPACE", "test-monitoring")
+
 	m := newTestModule(t)
 	obj := newTestAIGateway()
 	obj.Spec.ModelsAsAService.ManagementState = "Managed"
 	rr := newTestRR(obj)
-
-	scheme := runtime.NewScheme()
-	utilruntime.Must(dsciv2.AddToScheme(scheme))
-	rr.Client = fake.NewClientBuilder().WithScheme(scheme).WithObjects(&dsciv2.DSCInitialization{
-		ObjectMeta: metav1.ObjectMeta{Name: "default-dsci"},
-		Spec: dsciv2.DSCInitializationSpec{
-			Monitoring: serviceApi.DSCIMonitoring{
-				MonitoringCommonSpec: serviceApi.MonitoringCommonSpec{
-					Namespace: "test-monitoring",
-				},
-			},
-		},
-	}).Build()
+	rr.Client = fake.NewClientBuilder().WithScheme(newTestScheme(t)).Build()
 
 	g.Expect(m.initialize(context.Background(), rr)).To(Succeed())
 	g.Expect(rr.Manifests).To(HaveLen(1))
 	g.Expect(rr.Manifests[0].Path).To(Equal("/manifests"))
 	g.Expect(rr.Manifests[0].ContextDir).To(Equal("maascontroller"))
+}
+
+func TestInitializeManagedMaaSWithoutMonitoringNamespaceEnv(t *testing.T) {
+	g := NewWithT(t)
+
+	// Standalone/dev deployments (not orchestrated by opendatahub-operator)
+	// never get MONITORING_NAMESPACE injected; initialize must still succeed
+	// and simply leave params.env's baked-in default untouched.
+	t.Setenv("MONITORING_NAMESPACE", "")
+
+	m := newTestModule(t)
+	obj := newTestAIGateway()
+	obj.Spec.ModelsAsAService.ManagementState = "Managed"
+	rr := newTestRR(obj)
+	rr.Client = fake.NewClientBuilder().WithScheme(newTestScheme(t)).Build()
+
+	g.Expect(m.initialize(context.Background(), rr)).To(Succeed())
+	g.Expect(rr.Manifests).To(HaveLen(1))
 }
 
 func TestMaaSRemovalPendingWaitsWhileControllerHasNotCompletedTeardown(t *testing.T) {

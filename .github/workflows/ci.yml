@@ -100,8 +100,27 @@ jobs:
         if: failure()
         run: |
           NS="ai-gateway-system"
+          echo "=== AIGateway status ==="
+          kubectl get aigateway default-aigateway -o yaml 2>/dev/null || true
+          echo ""
+          echo "=== Deployments ==="
+          kubectl get deployments -n "${NS}" -o wide 2>/dev/null || true
+          echo ""
+          echo "=== Pods ==="
+          kubectl get pods -n "${NS}" -o wide 2>/dev/null || true
+          echo ""
           echo "=== Module operator logs ==="
           kubectl logs -n "${NS}" -l app.kubernetes.io/name=ai-gateway-operator --tail=100 2>/dev/null || true
+          echo ""
+          echo "=== MaaS controller logs ==="
+          for pod in $(kubectl get pods -n "${NS}" -l control-plane=maas-controller -o name 2>/dev/null); do
+            echo "--- ${pod} current ---"
+            kubectl logs -n "${NS}" "${pod}" --all-containers=true --tail=200 2>/dev/null || true
+            echo "--- ${pod} previous ---"
+            kubectl logs -n "${NS}" "${pod}" --previous --all-containers=true --tail=200 2>/dev/null || true
+            echo "--- ${pod} describe ---"
+            kubectl describe -n "${NS}" "${pod}" 2>/dev/null || true
+          done
           echo ""
           echo "=== Batch-gateway operator logs ==="
           kubectl logs -n "${NS}" -l app.kubernetes.io/name=batch-gateway-operator --tail=100 2>/dev/null || true
