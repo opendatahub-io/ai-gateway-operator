@@ -35,6 +35,7 @@ import (
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -498,4 +499,232 @@ func waitForSingletonDeleted(t *testing.T, obj client.Object) {
 	waitForDeleted(t, obj)
 	obj.SetResourceVersion("")
 	obj.SetUID("")
+}
+
+// TestAIGateway_MaaS runs the full AGO controller reconciliation loop against
+// a real API server and verifies the MaaS-specific sub-module condition path.
+// Unit tests call reportSubModuleStatus() directly on a fake client; this test
+// exercises the complete reconcile pipeline (action ordering, re-queue logic,
+// condition-update ordering) that only a real API server can surface.
+func TestAIGateway_MaaS(t *testing.T) {
+	g := NewWithT(t)
+	ns := support.IntegrationTestNamespace()
+
+	// Prometheus and optional CRD stubs so kustomize can resolve all resource
+	// types in the maas-controller bundle without needing a full cluster stack.
+	g.Expect(installMaaSCRDStubs(ctx, k8sClient)).To(Succeed())
+	t.Cleanup(func() { removeMaaSCRDStubs(ctx, k8sClient) })
+
+	module := &componentsv1alpha1.AIGateway{
+		ObjectMeta: metav1.ObjectMeta{Name: componentsv1alpha1.AIGatewayInstanceName},
+		Spec: componentsv1alpha1.AIGatewaySpec{
+			ModelsAsAService: componentsv1alpha1.ModelsAsAServiceComponent{
+				ManagementState: "Managed",
+			},
+		},
+	}
+	maasControllerDeploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "maas-controller",
+			Namespace: ns,
+		},
+	}
+
+	_ = k8sClient.Delete(ctx, module)
+	waitForSingletonDeleted(t, module)
+
+	t.Cleanup(func() {
+		if err := k8sClient.Delete(ctx, module); err != nil && !k8serr.IsNotFound(err) {
+			t.Logf("cleanup: unexpected error deleting AIGateway: %v", err)
+		}
+	})
+
+	t.Run("should set Ready=False when maas-controller is unavailable", func(t *testing.T) {
+		testMaaSReadyFalseOnOperandFailure(t, module, maasControllerDeploy)
+	})
+}
+
+// testMaaSReadyFalseOnOperandFailure verifies that:
+//  1. When maas-controller has readyReplicas >= 1, ModelsAsAServiceReady=True
+//  2. When maas-controller is scaled to 0, ModelsAsAServiceReady=False
+//  3. After restoring replicas, ModelsAsAServiceReady=True again
+func testMaaSReadyFalseOnOperandFailure(t *testing.T, module *componentsv1alpha1.AIGateway, maasControllerDeploy *appsv1.Deployment) {
+	t.Helper()
+	g := NewWithT(t)
+
+	module.ResourceVersion = ""
+	g.Expect(k8sClient.Create(ctx, module)).To(Succeed())
+
+	// Continuously simulate maas-controller readiness so the test does not
+	// depend on the CI cluster being able to pull the real maas-controller image.
+	// The controller reads deployment.status.readyReplicas — we patch it as
+	// kubelet would once the pod is running.
+	//
+	// Use a raw MergePatch with hardcoded JSON so all three status fields
+	// (replicas, readyReplicas, availableReplicas) are applied atomically.
+	// client.MergeFrom() may omit replicas=1 when the base has replicas=0
+	// (omitempty), which causes OpenShift admission to reject readyReplicas>replicas.
+	readyStatusPatch := client.RawPatch(types.MergePatchType,
+		[]byte(`{"status":{"replicas":1,"readyReplicas":1,"availableReplicas":1}}`))
+	patchCtx, patchCancel := context.WithTimeout(ctx, timeout)
+	defer patchCancel()
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-patchCtx.Done():
+				return
+			case <-ticker.C:
+				deploy := maasControllerDeploy.DeepCopy()
+				if err := k8sClient.Get(patchCtx, client.ObjectKeyFromObject(deploy), deploy); err != nil {
+					continue
+				}
+				if deploy.Status.ReadyReplicas >= 1 {
+					return
+				}
+				_ = k8sClient.Status().Patch(patchCtx, deploy, readyStatusPatch)
+			}
+		}
+	}()
+
+	// Both aggregate Ready and the MaaS sub-module condition must be True.
+	// Use `// []` to coerce null to an empty array when conditions haven't been
+	// set yet — jq treats `null | .[]` as an error which stops Eventually retrying.
+	g.Eventually(k.Get(module)).WithContext(ctx).WithTimeout(timeout).WithPolling(interval).Should(And(
+		jq.Match(`(.status.conditions // []) | any(.[]; .type == "Ready" and .status == "True")`),
+		jq.Match(`(.status.conditions // []) | any(.[]; .type == "ModelsAsAServiceReady" and .status == "True")`),
+	))
+
+	// Scale maas-controller to 0 to simulate operand failure.
+	// Scaling avoids a race where the controller re-creates the Deployment
+	// and the pod starts before the test can observe the NotReady transition.
+	g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(maasControllerDeploy), maasControllerDeploy)).To(Succeed())
+	zero := int32(0)
+	g.Expect(k8sClient.Patch(ctx, maasControllerDeploy, func() client.Patch {
+		p := client.MergeFrom(maasControllerDeploy.DeepCopy())
+		maasControllerDeploy.Spec.Replicas = &zero
+		return p
+	}())).To(Succeed())
+
+	// Zero out status immediately so the controller sees 0 ready replicas.
+	g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(maasControllerDeploy), maasControllerDeploy)).To(Succeed())
+	g.Expect(k8sClient.Status().Patch(ctx, maasControllerDeploy, func() client.Patch {
+		p := client.MergeFrom(maasControllerDeploy.DeepCopy())
+		maasControllerDeploy.Status.ReadyReplicas = 0
+		maasControllerDeploy.Status.AvailableReplicas = 0
+		return p
+	}())).To(Succeed())
+
+	// Controller must set ModelsAsAServiceReady=False.
+	g.Eventually(k.Get(module)).WithContext(ctx).WithTimeout(timeout).WithPolling(interval).Should(
+		jq.Match(`(.status.conditions // []) | any(.[]; .type == "ModelsAsAServiceReady" and .status == "False")`),
+	)
+
+	// Restore to 1 replica and simulate recovery.
+	g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(maasControllerDeploy), maasControllerDeploy)).To(Succeed())
+	one := int32(1)
+	g.Expect(k8sClient.Patch(ctx, maasControllerDeploy, func() client.Patch {
+		p := client.MergeFrom(maasControllerDeploy.DeepCopy())
+		maasControllerDeploy.Spec.Replicas = &one
+		return p
+	}())).To(Succeed())
+
+	g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(maasControllerDeploy), maasControllerDeploy)).To(Succeed())
+	g.Expect(k8sClient.Status().Patch(ctx, maasControllerDeploy,
+		client.RawPatch(types.MergePatchType,
+			[]byte(`{"status":{"replicas":1,"readyReplicas":1,"availableReplicas":1}}`)))).To(Succeed())
+
+	g.Eventually(k.Get(module)).WithContext(ctx).WithTimeout(timeout).WithPolling(interval).Should(And(
+		jq.Match(`(.status.conditions // []) | any(.[]; .type == "Ready" and .status == "True")`),
+		jq.Match(`(.status.conditions // []) | any(.[]; .type == "ModelsAsAServiceReady" and .status == "True")`),
+	))
+}
+
+// Labels used to identify integration-test-owned CRD stubs so teardown never
+// touches pre-existing cluster CRDs (e.g. Prometheus on OpenShift).
+const (
+	maasIntegrationCRDLabel = "integration.ai-gateway-operator.io/managed-by"
+	maasIntegrationCRDValue = "maas-integration-setup"
+)
+
+func maasStubCRD(name, group, ver, kind, plural, singular string, scope apiextensionsv1.ResourceScope) apiextensionsv1.CustomResourceDefinition {
+	t := true
+	return apiextensionsv1.CustomResourceDefinition{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   name,
+			Labels: map[string]string{maasIntegrationCRDLabel: maasIntegrationCRDValue},
+		},
+		Spec: apiextensionsv1.CustomResourceDefinitionSpec{
+			Group: group,
+			Versions: []apiextensionsv1.CustomResourceDefinitionVersion{{
+				Name:    ver,
+				Served:  true,
+				Storage: true,
+				Schema: &apiextensionsv1.CustomResourceValidation{
+					OpenAPIV3Schema: &apiextensionsv1.JSONSchemaProps{
+						Type:                   "object",
+						XPreserveUnknownFields: &t,
+					},
+				},
+			}},
+			Scope: scope,
+			Names: apiextensionsv1.CustomResourceDefinitionNames{
+				Plural:   plural,
+				Singular: singular,
+				Kind:     kind,
+			},
+		},
+	}
+}
+
+// installMaaSCRDStubs creates minimal CRD stubs needed by the maas-controller
+// kustomize bundle so the REST mapper can resolve all resource types without a
+// full Prometheus / Kuadrant / kserve stack.
+func installMaaSCRDStubs(ctx context.Context, cli client.Client) error {
+	crds := []apiextensionsv1.CustomResourceDefinition{
+		// Prometheus Operator — maas-controller bundle applies PodMonitor/ServiceMonitor.
+		maasStubCRD("podmonitors.monitoring.coreos.com", "monitoring.coreos.com", "v1",
+			"PodMonitor", "podmonitors", "podmonitor", apiextensionsv1.NamespaceScoped),
+		maasStubCRD("servicemonitors.monitoring.coreos.com", "monitoring.coreos.com", "v1",
+			"ServiceMonitor", "servicemonitors", "servicemonitor", apiextensionsv1.NamespaceScoped),
+		maasStubCRD("prometheusrules.monitoring.coreos.com", "monitoring.coreos.com", "v1",
+			"PrometheusRule", "prometheusrules", "prometheusrule", apiextensionsv1.NamespaceScoped),
+		// Optional watches — maas-controller informers timeout without these CRDs.
+		maasStubCRD("authpolicies.kuadrant.io", "kuadrant.io", "v1",
+			"AuthPolicy", "authpolicies", "authpolicy", apiextensionsv1.NamespaceScoped),
+		maasStubCRD("tokenratelimitpolicies.kuadrant.io", "kuadrant.io", "v1beta3",
+			"TokenRateLimitPolicy", "tokenratelimitpolicies", "tokenratelimitpolicy", apiextensionsv1.NamespaceScoped),
+		maasStubCRD("llminferenceservices.serving.kserve.io", "serving.kserve.io", "v1alpha1",
+			"LLMInferenceService", "llminferenceservices", "llminferenceservice", apiextensionsv1.NamespaceScoped),
+	}
+	for i := range crds {
+		if err := cli.Create(ctx, &crds[i]); err != nil && !k8serr.IsAlreadyExists(err) {
+			return fmt.Errorf("creating CRD %s: %w", crds[i].Name, err)
+		}
+	}
+	return nil
+}
+
+// removeMaaSCRDStubs deletes only the CRDs created by installMaaSCRDStubs,
+// identified by the maasIntegrationCRDLabel. Pre-existing CRDs are untouched.
+func removeMaaSCRDStubs(ctx context.Context, cli client.Client) {
+	names := []string{
+		"podmonitors.monitoring.coreos.com",
+		"servicemonitors.monitoring.coreos.com",
+		"prometheusrules.monitoring.coreos.com",
+		"authpolicies.kuadrant.io",
+		"tokenratelimitpolicies.kuadrant.io",
+		"llminferenceservices.serving.kserve.io",
+	}
+	for _, name := range names {
+		crd := &apiextensionsv1.CustomResourceDefinition{}
+		if err := cli.Get(ctx, client.ObjectKey{Name: name}, crd); err != nil {
+			continue
+		}
+		if crd.Labels[maasIntegrationCRDLabel] != maasIntegrationCRDValue {
+			continue // pre-existing CRD — leave untouched
+		}
+		_ = cli.Delete(ctx, crd)
+	}
 }
