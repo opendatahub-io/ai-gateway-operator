@@ -513,7 +513,11 @@ func TestAIGateway_MaaS(t *testing.T) {
 	// Prometheus and optional CRD stubs so kustomize can resolve all resource
 	// types in the maas-controller bundle without needing a full cluster stack.
 	g.Expect(installMaaSCRDStubs(ctx, k8sClient)).To(Succeed())
-	t.Cleanup(func() { removeMaaSCRDStubs(ctx, k8sClient) })
+	t.Cleanup(func() {
+		if err := removeMaaSCRDStubs(ctx, k8sClient); err != nil {
+			t.Errorf("cleanup: failed to remove MaaS CRD stubs: %v", err)
+		}
+	})
 
 	module := &componentsv1alpha1.AIGateway{
 		ObjectMeta: metav1.ObjectMeta{Name: componentsv1alpha1.AIGatewayInstanceName},
@@ -627,10 +631,13 @@ func testMaaSReadyFalseOnOperandFailure(t *testing.T, module *componentsv1alpha1
 		return p
 	}())).To(Succeed())
 
-	// Controller must set ModelsAsAServiceReady=False.
-	g.Eventually(k.Get(module)).WithContext(ctx).WithTimeout(timeout).WithPolling(interval).Should(
+	// Both aggregate Ready and the MaaS sub-module condition must be False.
+	// DeploymentsAvailable=False (Error severity) when a managed sub-module is
+	// unavailable drives Ready=False via the reconcile condition pipeline.
+	g.Eventually(k.Get(module)).WithContext(ctx).WithTimeout(timeout).WithPolling(interval).Should(And(
 		jq.Match(`(.status.conditions // []) | any(.[]; .type == "ModelsAsAServiceReady" and .status == "False")`),
-	)
+		jq.Match(`(.status.conditions // []) | any(.[]; .type == "Ready" and .status == "False")`),
+	))
 
 	// Restore to 1 replica and simulate recovery.
 	g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(maasControllerDeploy), maasControllerDeploy)).To(Succeed())
@@ -723,11 +730,17 @@ func installMaaSCRDStubs(ctx context.Context, cli client.Client) error {
 }
 
 // waitForCRDEstablished polls until the named CRD reaches the Established condition.
+// NotFound is treated as "cache not synced yet" and retried rather than returned as an
+// error — the manager's informer cache may lag briefly after a Create call.
 func waitForCRDEstablished(ctx context.Context, cli client.Client, crdName string) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		crd := &apiextensionsv1.CustomResourceDefinition{}
 		if err := cli.Get(ctx, client.ObjectKey{Name: crdName}, crd); err != nil {
+			if k8serr.IsNotFound(err) {
+				time.Sleep(500 * time.Millisecond)
+				continue
+			}
 			return fmt.Errorf("getting CRD %s: %w", crdName, err)
 		}
 		for _, cond := range crd.Status.Conditions {
@@ -742,7 +755,8 @@ func waitForCRDEstablished(ctx context.Context, cli client.Client, crdName strin
 
 // removeMaaSCRDStubs deletes only the CRDs created by installMaaSCRDStubs,
 // identified by the maasIntegrationCRDLabel. Pre-existing CRDs are untouched.
-func removeMaaSCRDStubs(ctx context.Context, cli client.Client) {
+// NotFound is treated as successful cleanup; all other errors are collected and returned.
+func removeMaaSCRDStubs(ctx context.Context, cli client.Client) error {
 	names := []string{
 		"podmonitors.monitoring.coreos.com",
 		"servicemonitors.monitoring.coreos.com",
@@ -751,14 +765,24 @@ func removeMaaSCRDStubs(ctx context.Context, cli client.Client) {
 		"tokenratelimitpolicies.kuadrant.io",
 		"llminferenceservices.serving.kserve.io",
 	}
+	var errs []string
 	for _, name := range names {
 		crd := &apiextensionsv1.CustomResourceDefinition{}
 		if err := cli.Get(ctx, client.ObjectKey{Name: name}, crd); err != nil {
+			if !k8serr.IsNotFound(err) {
+				errs = append(errs, fmt.Sprintf("get %s: %v", name, err))
+			}
 			continue
 		}
 		if crd.Labels[maasIntegrationCRDLabel] != maasIntegrationCRDValue {
 			continue // pre-existing CRD — leave untouched
 		}
-		_ = cli.Delete(ctx, crd)
+		if err := cli.Delete(ctx, crd); err != nil && !k8serr.IsNotFound(err) {
+			errs = append(errs, fmt.Sprintf("delete %s: %v", name, err))
+		}
 	}
+	if len(errs) > 0 {
+		return fmt.Errorf("removing MaaS CRD stubs: %s", strings.Join(errs, "; "))
+	}
+	return nil
 }
