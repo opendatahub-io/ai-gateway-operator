@@ -518,14 +518,17 @@ func TestAIGateway_MaaS(t *testing.T) {
 	g := NewWithT(t)
 	ns := support.IntegrationTestNamespace()
 
-	// Prometheus and optional CRD stubs so kustomize can resolve all resource
-	// types in the maas-controller bundle without needing a full cluster stack.
-	g.Expect(installMaaSCRDStubs(ctx, k8sClient)).To(Succeed())
+	// Register cleanup before setup so partially created resources are removed
+	// even if installMaaSCRDStubs fails mid-way (e.g. a CRD Established wait times out).
 	t.Cleanup(func() {
 		if err := removeMaaSCRDStubs(ctx, k8sClient); err != nil {
 			t.Errorf("cleanup: failed to remove MaaS CRD stubs: %v", err)
 		}
 	})
+
+	// Prometheus and optional CRD stubs so kustomize can resolve all resource
+	// types in the maas-controller bundle without needing a full cluster stack.
+	g.Expect(installMaaSCRDStubs(ctx, k8sClient)).To(Succeed())
 
 	module := &componentsv1alpha1.AIGateway{
 		ObjectMeta: metav1.ObjectMeta{Name: componentsv1alpha1.AIGatewayInstanceName},
@@ -838,12 +841,18 @@ func waitForCRDEstablished(ctx context.Context, cli client.Client, crdName strin
 // NotFound is treated as successful cleanup; other errors are collected and returned.
 func removeMaaSCRDStubs(ctx context.Context, cli client.Client) error {
 	ns := support.IntegrationTestNamespace()
+	var errs []string
+
 	webhookSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: "maas-controller-webhook-cert", Namespace: ns},
 	}
-	if err := cli.Get(ctx, client.ObjectKeyFromObject(webhookSecret), webhookSecret); err == nil {
-		if webhookSecret.Labels[maasIntegrationCRDLabel] == maasIntegrationCRDValue {
-			_ = cli.Delete(ctx, webhookSecret)
+	if err := cli.Get(ctx, client.ObjectKeyFromObject(webhookSecret), webhookSecret); err != nil {
+		if !k8serr.IsNotFound(err) {
+			errs = append(errs, fmt.Sprintf("get webhook cert secret: %v", err))
+		}
+	} else if webhookSecret.Labels[maasIntegrationCRDLabel] == maasIntegrationCRDValue {
+		if err := cli.Delete(ctx, webhookSecret); err != nil && !k8serr.IsNotFound(err) {
+			errs = append(errs, fmt.Sprintf("delete webhook cert secret: %v", err))
 		}
 	}
 
@@ -855,7 +864,6 @@ func removeMaaSCRDStubs(ctx context.Context, cli client.Client) error {
 		"tokenratelimitpolicies.kuadrant.io",
 		"llminferenceservices.serving.kserve.io",
 	}
-	var errs []string
 	for _, name := range names {
 		crd := &apiextensionsv1.CustomResourceDefinition{}
 		if err := cli.Get(ctx, client.ObjectKey{Name: name}, crd); err != nil {
