@@ -534,8 +534,13 @@ func TestAIGateway_MaaS(t *testing.T) {
 	waitForSingletonDeleted(t, module)
 
 	t.Cleanup(func() {
-		if err := k8sClient.Delete(ctx, module); err != nil && !k8serr.IsNotFound(err) {
+		err := k8sClient.Delete(ctx, module)
+		if err != nil && !k8serr.IsNotFound(err) {
 			t.Logf("cleanup: unexpected error deleting AIGateway: %v", err)
+			return
+		}
+		if err == nil {
+			waitForSingletonDeleted(t, module)
 		}
 	})
 
@@ -583,7 +588,9 @@ func testMaaSReadyFalseOnOperandFailure(t *testing.T, module *componentsv1alpha1
 				if deploy.Status.ReadyReplicas >= 1 {
 					return
 				}
-				_ = k8sClient.Status().Patch(patchCtx, deploy, readyStatusPatch)
+				if k8sClient.Status().Patch(patchCtx, deploy, readyStatusPatch) == nil {
+					return // patch succeeded — controller will see readyReplicas=1 on next reconcile
+				}
 			}
 		}
 	}()
@@ -595,6 +602,10 @@ func testMaaSReadyFalseOnOperandFailure(t *testing.T, module *componentsv1alpha1
 		jq.Match(`(.status.conditions // []) | any(.[]; .type == "Ready" and .status == "True")`),
 		jq.Match(`(.status.conditions // []) | any(.[]; .type == "ModelsAsAServiceReady" and .status == "True")`),
 	))
+
+	// Stop the goroutine before scaling to 0 so it cannot race against the
+	// test body and restore readyReplicas=1 after we zero it out.
+	patchCancel()
 
 	// Scale maas-controller to 0 to simulate operand failure.
 	// Scaling avoids a race where the controller re-creates the Deployment
@@ -680,7 +691,9 @@ func maasStubCRD(name, group, ver, kind, plural, singular string, scope apiexten
 
 // installMaaSCRDStubs creates minimal CRD stubs needed by the maas-controller
 // kustomize bundle so the REST mapper can resolve all resource types without a
-// full Prometheus / Kuadrant / kserve stack.
+// full Prometheus / Kuadrant / kserve stack. Each CRD is polled until it
+// reaches Established=True so the controller's REST mapper is ready before
+// the AIGateway CR is created.
 func installMaaSCRDStubs(ctx context.Context, cli client.Client) error {
 	crds := []apiextensionsv1.CustomResourceDefinition{
 		// Prometheus Operator — maas-controller bundle applies PodMonitor/ServiceMonitor.
@@ -702,8 +715,29 @@ func installMaaSCRDStubs(ctx context.Context, cli client.Client) error {
 		if err := cli.Create(ctx, &crds[i]); err != nil && !k8serr.IsAlreadyExists(err) {
 			return fmt.Errorf("creating CRD %s: %w", crds[i].Name, err)
 		}
+		if err := waitForCRDEstablished(ctx, cli, crds[i].Name); err != nil {
+			return fmt.Errorf("waiting for CRD %s to become Established: %w", crds[i].Name, err)
+		}
 	}
 	return nil
+}
+
+// waitForCRDEstablished polls until the named CRD reaches the Established condition.
+func waitForCRDEstablished(ctx context.Context, cli client.Client, crdName string) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		crd := &apiextensionsv1.CustomResourceDefinition{}
+		if err := cli.Get(ctx, client.ObjectKey{Name: crdName}, crd); err != nil {
+			return fmt.Errorf("getting CRD %s: %w", crdName, err)
+		}
+		for _, cond := range crd.Status.Conditions {
+			if cond.Type == apiextensionsv1.Established && cond.Status == apiextensionsv1.ConditionTrue {
+				return nil
+			}
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return fmt.Errorf("CRD %s did not become Established within %v", crdName, timeout)
 }
 
 // removeMaaSCRDStubs deletes only the CRDs created by installMaaSCRDStubs,
