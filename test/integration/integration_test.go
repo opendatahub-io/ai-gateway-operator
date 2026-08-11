@@ -33,6 +33,14 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
+
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -696,12 +704,16 @@ func maasStubCRD(name, group, ver, kind, plural, singular string, scope apiexten
 	}
 }
 
-// installMaaSCRDStubs creates minimal CRD stubs needed by the maas-controller
-// kustomize bundle so the REST mapper can resolve all resource types without a
-// full Prometheus / Kuadrant / kserve stack. Each CRD is polled until it
-// reaches Established=True so the controller's REST mapper is ready before
-// the AIGateway CR is created.
+// installMaaSCRDStubs creates the CRD stubs and webhook cert secret needed by
+// the maas-controller kustomize bundle. The webhook cert secret allows the
+// maas-controller pod to start normally on clusters where pods can run (kind),
+// so readyReplicas reaches 1 naturally without fighting the deployment controller.
+// Each CRD is polled until Established=True so the REST mapper is ready.
 func installMaaSCRDStubs(ctx context.Context, cli client.Client) error {
+	ns := support.IntegrationTestNamespace()
+	if err := ensureMaaSWebhookCertSecret(ctx, cli, ns); err != nil {
+		return fmt.Errorf("creating maas webhook cert secret: %w", err)
+	}
 	crds := []apiextensionsv1.CustomResourceDefinition{
 		// Prometheus Operator — maas-controller bundle applies PodMonitor/ServiceMonitor.
 		maasStubCRD("podmonitors.monitoring.coreos.com", "monitoring.coreos.com", "v1",
@@ -729,6 +741,74 @@ func installMaaSCRDStubs(ctx context.Context, cli client.Client) error {
 	return nil
 }
 
+// ensureMaaSWebhookCertSecret creates a self-signed TLS secret for the
+// maas-controller webhook server so the pod can mount the volume and start
+// normally. Without this secret the pod stays Pending (volume not found) on
+// clusters where pod creation is allowed (kind), keeping readyReplicas=0.
+func ensureMaaSWebhookCertSecret(ctx context.Context, cli client.Client, ns string) error {
+	const secretName = "maas-controller-webhook-cert"
+	existing := &corev1.Secret{}
+	err := cli.Get(ctx, client.ObjectKey{Name: secretName, Namespace: ns}, existing)
+	if err == nil {
+		return nil // already exists
+	}
+	if !k8serr.IsNotFound(err) {
+		return err
+	}
+	certPEM, keyPEM, err := generateIntegrationTestCert(ns)
+	if err != nil {
+		return fmt.Errorf("generating TLS cert: %w", err)
+	}
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      secretName,
+			Namespace: ns,
+			Labels:    map[string]string{maasIntegrationCRDLabel: maasIntegrationCRDValue},
+		},
+		Type: corev1.SecretTypeTLS,
+		Data: map[string][]byte{"tls.crt": certPEM, "tls.key": keyPEM},
+	}
+	return cli.Create(ctx, secret)
+}
+
+// generateIntegrationTestCert returns a PEM-encoded self-signed TLS cert and key
+// for the maas-controller webhook service in the given namespace.
+func generateIntegrationTestCert(ns string) ([]byte, []byte, error) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, nil, err
+	}
+	serialMax := new(big.Int).Lsh(big.NewInt(1), 128)
+	serial, err := rand.Int(rand.Reader, serialMax)
+	if err != nil {
+		return nil, nil, err
+	}
+	now := time.Now()
+	svc := fmt.Sprintf("maas-controller-webhook-service.%s.svc", ns)
+	template := &x509.Certificate{
+		SerialNumber:          serial,
+		Subject:               pkix.Name{CommonName: svc},
+		DNSNames:              []string{svc, svc + ".cluster.local"},
+		NotBefore:             now.Add(-time.Minute),
+		NotAfter:              now.Add(24 * time.Hour),
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		return nil, nil, err
+	}
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+	keyDER, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		return nil, nil, err
+	}
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
+	return certPEM, keyPEM, nil
+}
+
 // waitForCRDEstablished polls until the named CRD reaches the Established condition.
 // NotFound is treated as "cache not synced yet" and retried rather than returned as an
 // error — the manager's informer cache may lag briefly after a Create call.
@@ -753,10 +833,20 @@ func waitForCRDEstablished(ctx context.Context, cli client.Client, crdName strin
 	return fmt.Errorf("CRD %s did not become Established within %v", crdName, timeout)
 }
 
-// removeMaaSCRDStubs deletes only the CRDs created by installMaaSCRDStubs,
-// identified by the maasIntegrationCRDLabel. Pre-existing CRDs are untouched.
-// NotFound is treated as successful cleanup; all other errors are collected and returned.
+// removeMaaSCRDStubs deletes the CRDs and webhook cert secret created by
+// installMaaSCRDStubs. Pre-existing cluster CRDs are left untouched.
+// NotFound is treated as successful cleanup; other errors are collected and returned.
 func removeMaaSCRDStubs(ctx context.Context, cli client.Client) error {
+	ns := support.IntegrationTestNamespace()
+	webhookSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "maas-controller-webhook-cert", Namespace: ns},
+	}
+	if err := cli.Get(ctx, client.ObjectKeyFromObject(webhookSecret), webhookSecret); err == nil {
+		if webhookSecret.Labels[maasIntegrationCRDLabel] == maasIntegrationCRDValue {
+			_ = cli.Delete(ctx, webhookSecret)
+		}
+	}
+
 	names := []string{
 		"podmonitors.monitoring.coreos.com",
 		"servicemonitors.monitoring.coreos.com",
