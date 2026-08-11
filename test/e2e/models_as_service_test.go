@@ -28,6 +28,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"math/big"
+	"strings"
 	"testing"
 	"time"
 
@@ -597,16 +598,28 @@ func testMaaSDisabledRemovesOperands(t *testing.T, maasControllerDeploy *appsv1.
 	//    run its self-teardown (real OpenShift), this happens automatically via the
 	//    teardown-requested / teardown-completed annotation handshake. On minimal
 	//    clusters, AGO may take the full setupTimeout.
-	g.Eventually(func() bool {
+	//    Returns a descriptive string of still-present operands so a timeout failure
+	//    names the specific resource(s) still present rather than just "false".
+	g.Eventually(func() string {
+		var remaining []string
 		deploy := &appsv1.Deployment{}
+		if !k8serr.IsNotFound(k8sClient.Get(ctx, client.ObjectKeyFromObject(maasControllerDeploy), deploy)) {
+			remaining = append(remaining, "maas-controller Deployment")
+		}
 		svc := &corev1.Service{}
+		if !k8serr.IsNotFound(k8sClient.Get(ctx, client.ObjectKey{Name: "maas-controller-webhook-service", Namespace: operatorNamespace}, svc)) {
+			remaining = append(remaining, "maas-controller-webhook-service Service")
+		}
 		cm := &corev1.ConfigMap{}
+		if !k8serr.IsNotFound(k8sClient.Get(ctx, client.ObjectKey{Name: "maas-parameters", Namespace: operatorNamespace}, cm)) {
+			remaining = append(remaining, "maas-parameters ConfigMap")
+		}
 		webhook := &admissionregistrationv1.ValidatingWebhookConfiguration{}
-		return k8serr.IsNotFound(k8sClient.Get(ctx, client.ObjectKeyFromObject(maasControllerDeploy), deploy)) &&
-			k8serr.IsNotFound(k8sClient.Get(ctx, client.ObjectKey{Name: "maas-controller-webhook-service", Namespace: operatorNamespace}, svc)) &&
-			k8serr.IsNotFound(k8sClient.Get(ctx, client.ObjectKey{Name: "maas-parameters", Namespace: operatorNamespace}, cm)) &&
-			k8serr.IsNotFound(k8sClient.Get(ctx, client.ObjectKey{Name: "maas-validating-webhook-configuration"}, webhook))
-	}).WithContext(ctx).WithTimeout(setupTimeout).WithPolling(interval).Should(BeTrue())
+		if !k8serr.IsNotFound(k8sClient.Get(ctx, client.ObjectKey{Name: "maas-validating-webhook-configuration"}, webhook)) {
+			remaining = append(remaining, "maas-validating-webhook-configuration ValidatingWebhookConfiguration")
+		}
+		return strings.Join(remaining, ", ")
+	}).WithContext(ctx).WithTimeout(setupTimeout).WithPolling(interval).Should(BeEmpty())
 }
 
 // maasCleanup removes stub CRDs and the webhook cert secret created by
