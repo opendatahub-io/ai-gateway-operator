@@ -439,9 +439,9 @@ func testMaaSStatusConditions(t *testing.T) {
 	))
 }
 
-// testMaaSReleasesPopulated verifies that the AIGateway CR status carries non-empty
-// release metadata, which the platform upgrade orchestrator requires to track version
-// alignment between the platform and the module.
+// testMaaSReleasesPopulated verifies that the AIGateway CR status carries a named
+// release entry with a non-empty version, which the platform upgrade orchestrator
+// requires to track version alignment between the platform and the module.
 func testMaaSReleasesPopulated(t *testing.T) {
 	t.Helper()
 	g := NewWithT(t)
@@ -450,7 +450,7 @@ func testMaaSReleasesPopulated(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: componentsv1alpha1.AIGatewayInstanceName},
 	}
 	g.Eventually(k.Get(aiGateway)).WithContext(ctx).WithTimeout(timeout).WithPolling(interval).Should(
-		jq.Match(`.status.releases | length > 0`),
+		jq.Match(`.status.releases[] | select(.name == "AI Gateway Operator") | .version != ""`),
 	)
 }
 
@@ -593,13 +593,19 @@ func testMaaSDisabledRemovesOperands(t *testing.T, maasControllerDeploy *appsv1.
 		[]byte(`{"spec":{"modelsAsAService":{"managementState":"Removed"}}}`))
 	g.Expect(k8sClient.Patch(ctx, fresh, removePatch)).To(Succeed())
 
-	// 2. AGO must remove the maas-controller Deployment. On clusters where
-	//    maas-controller can run its self-teardown (real OpenShift), this happens
-	//    automatically via the teardown-requested / teardown-completed annotation
-	//    handshake. On minimal clusters, AGO may take the full setupTimeout.
+	// 2. AGO must remove all MaaS operands. On clusters where maas-controller can
+	//    run its self-teardown (real OpenShift), this happens automatically via the
+	//    teardown-requested / teardown-completed annotation handshake. On minimal
+	//    clusters, AGO may take the full setupTimeout.
 	g.Eventually(func() bool {
-		d := &appsv1.Deployment{}
-		return k8serr.IsNotFound(k8sClient.Get(ctx, client.ObjectKeyFromObject(maasControllerDeploy), d))
+		deploy := &appsv1.Deployment{}
+		svc := &corev1.Service{}
+		cm := &corev1.ConfigMap{}
+		webhook := &admissionregistrationv1.ValidatingWebhookConfiguration{}
+		return k8serr.IsNotFound(k8sClient.Get(ctx, client.ObjectKeyFromObject(maasControllerDeploy), deploy)) &&
+			k8serr.IsNotFound(k8sClient.Get(ctx, client.ObjectKey{Name: "maas-controller-webhook-service", Namespace: operatorNamespace}, svc)) &&
+			k8serr.IsNotFound(k8sClient.Get(ctx, client.ObjectKey{Name: "maas-parameters", Namespace: operatorNamespace}, cm)) &&
+			k8serr.IsNotFound(k8sClient.Get(ctx, client.ObjectKey{Name: "maas-validating-webhook-configuration"}, webhook))
 	}).WithContext(ctx).WithTimeout(setupTimeout).WithPolling(interval).Should(BeTrue())
 }
 
