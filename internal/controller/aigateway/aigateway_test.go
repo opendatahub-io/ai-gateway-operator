@@ -834,6 +834,60 @@ func TestReportStatus_NoPlatformConfigMap(t *testing.T) {
 	g.Expect(obj.Status.Releases[0].Name).To(Equal("AI Gateway Operator"))
 }
 
+func TestReportStatus_ClearsStalePlatformEntryOnConfigMapDeletion(t *testing.T) {
+	g := NewWithT(t)
+
+	m := newTestModule(t)
+	obj := newTestAIGateway()
+	// Simulate a platform release stamped by a prior reconcile.
+	obj.Status.Releases = []common.ComponentRelease{
+		{Name: "AI Gateway Operator", Version: "v0.1.0"},
+		{Name: platformReleaseName, Version: "3.5.0"},
+	}
+	rr := newTestRR(obj)
+
+	scheme := runtime.NewScheme()
+	utilruntime.Must(corev1.AddToScheme(scheme))
+	// No ConfigMap — simulates deletion by the platform operator.
+	rr.Client = fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	g.Expect(m.reportStatus(context.Background(), rr)).To(Succeed())
+
+	// Stale platform entry must be cleared when the ConfigMap is absent.
+	g.Expect(obj.Status.Releases).To(HaveLen(1))
+	g.Expect(obj.Status.Releases[0].Name).To(Equal("AI Gateway Operator"))
+}
+
+func TestReportStatus_ClearsStalePlatformEntryOnKeyRemoval(t *testing.T) {
+	g := NewWithT(t)
+
+	m := newTestModule(t)
+	obj := newTestAIGateway()
+	obj.Status.Releases = []common.ComponentRelease{
+		{Name: "AI Gateway Operator", Version: "v0.1.0"},
+		{Name: platformReleaseName, Version: "3.5.0"},
+	}
+	rr := newTestRR(obj)
+
+	scheme := runtime.NewScheme()
+	utilruntime.Must(corev1.AddToScheme(scheme))
+	// ConfigMap exists but platformVersion key is absent.
+	platformCM := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      platformConfigName,
+			Namespace: "test-ns",
+		},
+		Data: map[string]string{},
+	}
+	rr.Client = fake.NewClientBuilder().WithScheme(scheme).WithObjects(platformCM).Build()
+
+	g.Expect(m.reportStatus(context.Background(), rr)).To(Succeed())
+
+	// Stale platform entry must be cleared when platformVersion key is missing.
+	g.Expect(obj.Status.Releases).To(HaveLen(1))
+	g.Expect(obj.Status.Releases[0].Name).To(Equal("AI Gateway Operator"))
+}
+
 func TestSetPlatformRelease_UpdatesExisting(t *testing.T) {
 	g := NewWithT(t)
 
