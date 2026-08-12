@@ -28,16 +28,19 @@ import (
 	"encoding/pem"
 	"fmt"
 	"math/big"
+	"strings"
 	"testing"
 	"time"
 
 	. "github.com/onsi/gomega"
 
+	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/lburgazzoli/gomega-matchers/pkg/matchers/jq"
@@ -310,6 +313,28 @@ func TestModelsAsAService(t *testing.T) {
 	t.Run("should set owner references on maas-controller", func(t *testing.T) {
 		testMaaSControllerOwnerReferences(t, maasControllerDeploy)
 	})
+	t.Run("should report Ready condition with current observedGeneration", func(t *testing.T) {
+		testMaaSStatusConditions(t)
+	})
+	t.Run("should populate status.releases with version metadata", func(t *testing.T) {
+		testMaaSReleasesPopulated(t)
+	})
+	t.Run("should echo platformVersion into status.releases when platform config is present", func(t *testing.T) {
+		testMaaSPlatformVersionEchoed(t)
+	})
+	t.Run("should enforce singleton name constraint", func(t *testing.T) {
+		testMaaSSingletonEnforcement(t)
+	})
+	t.Run("should create maas-controller webhook service", func(t *testing.T) {
+		testMaaSWebhookServiceExists(t)
+	})
+	t.Run("should register validating webhook configuration", func(t *testing.T) {
+		testMaaSValidatingWebhookConfigExists(t)
+	})
+	// Runs last: temporarily disables MaaS and restores it via t.Cleanup.
+	t.Run("should remove operands when MaaS ManagementState is set to Removed", func(t *testing.T) {
+		testMaaSDisabledRemovesOperands(t, maasControllerDeploy)
+	})
 }
 
 func testMaaSCRDsCreated(t *testing.T) {
@@ -394,6 +419,207 @@ func testMaaSControllerOwnerReferences(t *testing.T, maasControllerDeploy *appsv
 		jq.Match(`.metadata.ownerReferences[] | select(.kind == "AIGateway") | .name == "%s"`,
 			componentsv1alpha1.AIGatewayInstanceName),
 	)
+}
+
+// testMaaSStatusConditions verifies that the AIGateway CR reports the correct conditions
+// after a successful reconcile, satisfying the platform contract's trust requirements:
+//   - aggregate Ready=True (platform reads this to compute ModulesReady on DSC)
+//   - ModelsAsAServiceReady=True (sub-module condition read by Dashboard and consumers)
+//   - observedGeneration == metadata.generation (platform uses this to detect stale status)
+func testMaaSStatusConditions(t *testing.T) {
+	t.Helper()
+	g := NewWithT(t)
+
+	aiGateway := &componentsv1alpha1.AIGateway{
+		ObjectMeta: metav1.ObjectMeta{Name: componentsv1alpha1.AIGatewayInstanceName},
+	}
+	g.Eventually(k.Get(aiGateway)).WithContext(ctx).WithTimeout(timeout).WithPolling(interval).Should(And(
+		jq.Match(`.status.conditions | any(.[]; .type == "Ready" and .status == "True")`),
+		jq.Match(`.status.conditions | any(.[]; .type == "ModelsAsAServiceReady" and .status == "True")`),
+		jq.Match(`.status.observedGeneration == .metadata.generation`),
+	))
+}
+
+// testMaaSReleasesPopulated verifies that the AIGateway CR status carries a named
+// release entry with a non-empty version, which the platform upgrade orchestrator
+// requires to track version alignment between the platform and the module.
+func testMaaSReleasesPopulated(t *testing.T) {
+	t.Helper()
+	g := NewWithT(t)
+
+	aiGateway := &componentsv1alpha1.AIGateway{
+		ObjectMeta: metav1.ObjectMeta{Name: componentsv1alpha1.AIGatewayInstanceName},
+	}
+	g.Eventually(k.Get(aiGateway)).WithContext(ctx).WithTimeout(timeout).WithPolling(interval).Should(
+		jq.Match(`.status.releases[] | select(.name == "AI Gateway Operator") | .version != ""`),
+	)
+}
+
+// testMaaSPlatformVersionEchoed verifies the upgrade handshake: when the platform operator
+// sets data.platformVersion in the odh-aigateway-config ConfigMap, AGO echoes that version
+// into status.releases as the "platform" release entry. This is how the platform detects
+// version alignment during upgrades.
+func testMaaSPlatformVersionEchoed(t *testing.T) {
+	t.Helper()
+	g := NewWithT(t)
+
+	const testPlatformVersion = "1.2.3-e2e-test"
+	platformCM := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "odh-aigateway-config",
+			Namespace: operatorNamespace,
+		},
+		Data: map[string]string{
+			"platformVersion": testPlatformVersion,
+		},
+	}
+
+	// Create the ConfigMap and remove it when the sub-test ends.
+	g.Expect(k8sClient.Create(ctx, platformCM)).To(Succeed())
+	t.Cleanup(func() {
+		if err := k8sClient.Delete(ctx, platformCM); client.IgnoreNotFound(err) != nil {
+			t.Errorf("cleanup: failed to delete odh-aigateway-config ConfigMap: %v", err)
+		}
+	})
+
+	// Nudge a reconcile so AGO picks up the new ConfigMap immediately.
+	trigger := &componentsv1alpha1.AIGateway{
+		ObjectMeta: metav1.ObjectMeta{Name: componentsv1alpha1.AIGatewayInstanceName},
+	}
+	g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(trigger), trigger)).To(Succeed())
+	triggerVal := fmt.Sprintf("%d", time.Now().UnixNano())
+	g.Expect(k8sClient.Patch(ctx, trigger, client.RawPatch(types.MergePatchType,
+		[]byte(`{"metadata":{"annotations":{"aigateway.opendatahub.io/test-reconcile-trigger":"`+triggerVal+`"}}}`)))).To(Succeed())
+
+	// AGO should echo platformVersion into status.releases as the "platform" entry.
+	aiGateway := &componentsv1alpha1.AIGateway{
+		ObjectMeta: metav1.ObjectMeta{Name: componentsv1alpha1.AIGatewayInstanceName},
+	}
+	g.Eventually(k.Get(aiGateway)).WithContext(ctx).WithTimeout(timeout).WithPolling(interval).Should(
+		jq.Match(`.status.releases[] | select(.name == "platform") | .version == "%s"`, testPlatformVersion),
+	)
+}
+
+// testMaaSSingletonEnforcement verifies that the AIGateway CRD's CEL validation rule
+// rejects any instance whose name differs from "default-aigateway", enforcing the
+// singleton contract required by the platform.
+func testMaaSSingletonEnforcement(t *testing.T) {
+	t.Helper()
+	g := NewWithT(t)
+
+	err := k8sClient.Create(ctx, &componentsv1alpha1.AIGateway{
+		ObjectMeta: metav1.ObjectMeta{Name: "second-aigateway"},
+	})
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("AIGateway name must be default-aigateway"))
+}
+
+// testMaaSWebhookServiceExists verifies that the maas-controller webhook Service
+// is deployed in the operator namespace when MaaS is enabled.
+func testMaaSWebhookServiceExists(t *testing.T) {
+	t.Helper()
+	g := NewWithT(t)
+
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "maas-controller-webhook-service",
+			Namespace: operatorNamespace,
+		},
+	}
+	g.Eventually(k.Get(svc)).WithContext(ctx).WithTimeout(timeout).WithPolling(interval).Should(
+		jq.Match(`.metadata.name == "maas-controller-webhook-service"`),
+	)
+}
+
+// testMaaSValidatingWebhookConfigExists verifies that the maas-controller
+// ValidatingWebhookConfiguration is registered on the cluster when MaaS is enabled.
+func testMaaSValidatingWebhookConfigExists(t *testing.T) {
+	t.Helper()
+	g := NewWithT(t)
+
+	webhook := &admissionregistrationv1.ValidatingWebhookConfiguration{
+		ObjectMeta: metav1.ObjectMeta{Name: "maas-validating-webhook-configuration"},
+	}
+	g.Eventually(k.Get(webhook)).WithContext(ctx).WithTimeout(timeout).WithPolling(interval).Should(
+		jq.Match(`.metadata.name == "maas-validating-webhook-configuration"`),
+	)
+}
+
+// testMaaSDisabledRemovesOperands verifies that setting ModelsAsAService.ManagementState
+// to Removed causes AGO to remove the maas-controller Deployment and all MaaS operands.
+//
+// The cleanup contract is tested end-to-end: AGO sends the teardown-requested signal to
+// maas-controller, which self-tears-down and echoes teardown-completed, at which point
+// AGO's GC removes the bundle. On clusters where maas-controller can run its teardown
+// loop (real OpenShift with required CRDs), this happens automatically. On minimal
+// clusters (kind with stub CRDs only), the test waits up to setupTimeout for the same
+// outcome regardless of mechanism.
+func testMaaSDisabledRemovesOperands(t *testing.T, maasControllerDeploy *appsv1.Deployment) {
+	t.Helper()
+	g := NewWithT(t)
+
+	// Restore MaaS to Managed when the sub-test ends, regardless of outcome.
+	t.Cleanup(func() {
+		restored := &componentsv1alpha1.AIGateway{
+			ObjectMeta: metav1.ObjectMeta{Name: componentsv1alpha1.AIGatewayInstanceName},
+		}
+		if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(restored), restored); err != nil {
+			t.Errorf("cleanup: failed to get AIGateway CR: %v", err)
+			return
+		}
+		managedPatch := client.RawPatch(types.MergePatchType,
+			[]byte(`{"spec":{"modelsAsAService":{"managementState":"Managed"}}}`))
+		if err := k8sClient.Patch(ctx, restored, managedPatch); err != nil {
+			t.Errorf("cleanup: failed to restore MaaS ManagementState to Managed: %v", err)
+			return
+		}
+		t.Logf("cleanup: waiting for maas-controller Deployment to be recreated")
+		if err := pollFor(ctx, "maas-controller ready after cleanup", setupTimeout, func() (bool, error) {
+			d := &appsv1.Deployment{}
+			if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(maasControllerDeploy), d); err != nil {
+				return false, nil
+			}
+			return d.Status.ReadyReplicas >= 1, nil
+		}); err != nil {
+			t.Errorf("cleanup: maas-controller did not become ready: %v", err)
+		}
+	})
+
+	// 1. Set ManagementState=Removed to trigger the teardown lifecycle.
+	fresh := &componentsv1alpha1.AIGateway{
+		ObjectMeta: metav1.ObjectMeta{Name: componentsv1alpha1.AIGatewayInstanceName},
+	}
+	g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(fresh), fresh)).To(Succeed())
+	removePatch := client.RawPatch(types.MergePatchType,
+		[]byte(`{"spec":{"modelsAsAService":{"managementState":"Removed"}}}`))
+	g.Expect(k8sClient.Patch(ctx, fresh, removePatch)).To(Succeed())
+
+	// 2. AGO must remove all MaaS operands. On clusters where maas-controller can
+	//    run its self-teardown (real OpenShift), this happens automatically via the
+	//    teardown-requested / teardown-completed annotation handshake. On minimal
+	//    clusters, AGO may take the full setupTimeout.
+	//    Returns a descriptive string of still-present operands so a timeout failure
+	//    names the specific resource(s) still present rather than just "false".
+	g.Eventually(func() string {
+		var remaining []string
+		deploy := &appsv1.Deployment{}
+		if !k8serr.IsNotFound(k8sClient.Get(ctx, client.ObjectKeyFromObject(maasControllerDeploy), deploy)) {
+			remaining = append(remaining, "maas-controller Deployment")
+		}
+		svc := &corev1.Service{}
+		if !k8serr.IsNotFound(k8sClient.Get(ctx, client.ObjectKey{Name: "maas-controller-webhook-service", Namespace: operatorNamespace}, svc)) {
+			remaining = append(remaining, "maas-controller-webhook-service Service")
+		}
+		cm := &corev1.ConfigMap{}
+		if !k8serr.IsNotFound(k8sClient.Get(ctx, client.ObjectKey{Name: "maas-parameters", Namespace: operatorNamespace}, cm)) {
+			remaining = append(remaining, "maas-parameters ConfigMap")
+		}
+		webhook := &admissionregistrationv1.ValidatingWebhookConfiguration{}
+		if !k8serr.IsNotFound(k8sClient.Get(ctx, client.ObjectKey{Name: "maas-validating-webhook-configuration"}, webhook)) {
+			remaining = append(remaining, "maas-validating-webhook-configuration ValidatingWebhookConfiguration")
+		}
+		return strings.Join(remaining, ", ")
+	}).WithContext(ctx).WithTimeout(setupTimeout).WithPolling(interval).Should(BeEmpty())
 }
 
 // maasCleanup removes stub CRDs and the webhook cert secret created by
