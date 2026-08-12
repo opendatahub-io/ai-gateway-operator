@@ -902,3 +902,28 @@ func TestWithPreservedPlatformRelease_OnError(t *testing.T) {
 	// Platform entry must be preserved even when inner fails.
 	g.Expect(getPlatformRelease(obj).Version).To(Equal("2.19.0"))
 }
+
+func TestPlatformConfigMapPredicate(t *testing.T) {
+	pred := platformConfigMapPredicate("test-ns")
+
+	tests := []struct {
+		name     string
+		cmName   string
+		cmNS     string
+		expected bool
+	}{
+		{"matching name and namespace", platformConfigName, "test-ns", true},
+		{"wrong name", "other-cm", "test-ns", false},
+		{"wrong namespace", platformConfigName, "other-ns", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
+			obj := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{Name: tt.cmName, Namespace: tt.cmNS},
+			}
+			g.Expect(pred(obj)).To(Equal(tt.expected))
+		})
+	}
+}

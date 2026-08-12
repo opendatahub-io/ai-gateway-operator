@@ -26,6 +26,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/opendatahub-io/opendatahub-operator/v2/api/common"
@@ -469,5 +470,15 @@ func withPreservedPlatformRelease(
 		}
 
 		return err
+	}
+}
+
+// platformConfigMapPredicate returns a predicate function that matches only the
+// platform-managed odh-aigateway-config ConfigMap in the given applications namespace.
+// The controller uses this to scope the ConfigMap watch, so changes to platformVersion
+// trigger a reconcile of the singleton AIGateway CR.
+func platformConfigMapPredicate(ns string) func(client.Object) bool {
+	return func(o client.Object) bool {
+		return o.GetName() == platformConfigName && o.GetNamespace() == ns
 	}
 }
