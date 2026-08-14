@@ -1,0 +1,44 @@
+FROM registry.access.redhat.com/ubi9/go-toolset:1.26.2-1777889793@sha256:1c1259373e6feb4b57de490452379c40888cf6e876154cd2ace17eae9c64a7ea AS builder
+ARG TARGETOS=linux
+ARG TARGETARCH
+ARG CGO_ENABLED=1
+ARG LDFLAGS=""
+ARG GIT_COMMIT=""
+ARG GIT_BRANCH=""
+ARG GIT_REPO=""
+ARG VERSION=""
+
+USER 0
+WORKDIR /opt/app-root/src
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY Makefile Makefile
+COPY api/ api/
+COPY cmd/ cmd/
+COPY internal/ internal/
+COPY pkg/ pkg/
+
+COPY config/manifests/batchgateway/ config/manifests/batchgateway/
+COPY config/manifests/maascontroller/ config/manifests/maascontroller/
+COPY config/component_metadata.yaml config/manifests/ai-gateway-operator/component_metadata.yaml
+
+RUN VERSION_PKG="github.com/opendatahub-io/ai-gateway-operator/pkg/version" && \
+    if [ -z "${LDFLAGS}" ] && [ -n "${GIT_COMMIT}" ]; then \
+      LDFLAGS="-X ${VERSION_PKG}.Version=${VERSION} -X ${VERSION_PKG}.Commit=${GIT_COMMIT} -X ${VERSION_PKG}.Branch=${GIT_BRANCH} -X ${VERSION_PKG}.Repo=${GIT_REPO}"; \
+    fi && \
+    mkdir -p bin && \
+    CGO_ENABLED=${CGO_ENABLED} GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    GOEXPERIMENT=strictfipsruntime \
+    make build-bin BIN_DIR=/opt/app-root/src/bin BIN_NAME=manager LDFLAGS="${LDFLAGS}"
+
+RUN chmod -R a+rX config/manifests/
+
+FROM registry.access.redhat.com/ubi9/ubi-minimal:9.7@sha256:d91be7cea9f03a757d69ad7fcdfcd7849dba820110e7980d5e2a1f46ed06ea3b
+WORKDIR /
+COPY --from=builder /opt/app-root/src/bin/manager /manager
+COPY --from=builder /opt/app-root/src/config/manifests/ /manifests/
+
+USER 65532:65532
+ENTRYPOINT ["/manager"]

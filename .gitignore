@@ -1,0 +1,14 @@
+# Binaries
+bin/
+
+# Test coverage
+cover.out
+
+# OS files
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
