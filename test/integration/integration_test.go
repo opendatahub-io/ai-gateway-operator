@@ -714,8 +714,11 @@ func maasStubCRD(name, group, ver, kind, plural, singular string, scope apiexten
 // Each CRD is polled until Established=True so the REST mapper is ready.
 func installMaaSCRDStubs(ctx context.Context, cli client.Client) error {
 	ns := support.IntegrationTestNamespace()
-	if err := ensureMaaSWebhookCertSecret(ctx, cli, ns); err != nil {
+	if err := ensureMaaSTLSSecret(ctx, cli, ns, "maas-controller-webhook-cert", "maas-controller-webhook-service"); err != nil {
 		return fmt.Errorf("creating maas webhook cert secret: %w", err)
+	}
+	if err := ensureMaaSTLSSecret(ctx, cli, ns, "maas-controller-metrics-tls", "maas-controller-metrics"); err != nil {
+		return fmt.Errorf("creating maas metrics cert secret: %w", err)
 	}
 	crds := []apiextensionsv1.CustomResourceDefinition{
 		// Prometheus Operator — maas-controller bundle applies PodMonitor/ServiceMonitor.
@@ -744,12 +747,11 @@ func installMaaSCRDStubs(ctx context.Context, cli client.Client) error {
 	return nil
 }
 
-// ensureMaaSWebhookCertSecret creates a self-signed TLS secret for the
-// maas-controller webhook server so the pod can mount the volume and start
-// normally. Without this secret the pod stays Pending (volume not found) on
-// clusters where pod creation is allowed (kind), keeping readyReplicas=0.
-func ensureMaaSWebhookCertSecret(ctx context.Context, cli client.Client, ns string) error {
-	const secretName = "maas-controller-webhook-cert"
+// ensureMaaSTLSSecret creates a self-signed TLS secret so the maas-controller
+// pod can mount the volume and start normally. Without these secrets the pod
+// stays Pending (volume not found) on clusters where pod creation is allowed
+// (kind), keeping readyReplicas=0.
+func ensureMaaSTLSSecret(ctx context.Context, cli client.Client, ns, secretName, serviceName string) error {
 	existing := &corev1.Secret{}
 	err := cli.Get(ctx, client.ObjectKey{Name: secretName, Namespace: ns}, existing)
 	if err == nil {
@@ -758,7 +760,7 @@ func ensureMaaSWebhookCertSecret(ctx context.Context, cli client.Client, ns stri
 	if !k8serr.IsNotFound(err) {
 		return err
 	}
-	certPEM, keyPEM, err := generateIntegrationTestCert(ns)
+	certPEM, keyPEM, err := generateIntegrationTestCert(ns, serviceName)
 	if err != nil {
 		return fmt.Errorf("generating TLS cert: %w", err)
 	}
@@ -774,9 +776,7 @@ func ensureMaaSWebhookCertSecret(ctx context.Context, cli client.Client, ns stri
 	return cli.Create(ctx, secret)
 }
 
-// generateIntegrationTestCert returns a PEM-encoded self-signed TLS cert and key
-// for the maas-controller webhook service in the given namespace.
-func generateIntegrationTestCert(ns string) ([]byte, []byte, error) {
+func generateIntegrationTestCert(ns, serviceName string) ([]byte, []byte, error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, nil, err
@@ -787,7 +787,7 @@ func generateIntegrationTestCert(ns string) ([]byte, []byte, error) {
 		return nil, nil, err
 	}
 	now := time.Now()
-	svc := fmt.Sprintf("maas-controller-webhook-service.%s.svc", ns)
+	svc := fmt.Sprintf("%s.%s.svc", serviceName, ns)
 	template := &x509.Certificate{
 		SerialNumber:          serial,
 		Subject:               pkix.Name{CommonName: svc},
@@ -843,16 +843,18 @@ func removeMaaSCRDStubs(ctx context.Context, cli client.Client) error {
 	ns := support.IntegrationTestNamespace()
 	var errs []string
 
-	webhookSecret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "maas-controller-webhook-cert", Namespace: ns},
-	}
-	if err := cli.Get(ctx, client.ObjectKeyFromObject(webhookSecret), webhookSecret); err != nil {
-		if !k8serr.IsNotFound(err) {
-			errs = append(errs, fmt.Sprintf("get webhook cert secret: %v", err))
+	for _, secretName := range []string{"maas-controller-webhook-cert", "maas-controller-metrics-tls"} {
+		s := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: ns},
 		}
-	} else if webhookSecret.Labels[maasIntegrationCRDLabel] == maasIntegrationCRDValue {
-		if err := cli.Delete(ctx, webhookSecret); err != nil && !k8serr.IsNotFound(err) {
-			errs = append(errs, fmt.Sprintf("delete webhook cert secret: %v", err))
+		if err := cli.Get(ctx, client.ObjectKeyFromObject(s), s); err != nil {
+			if !k8serr.IsNotFound(err) {
+				errs = append(errs, fmt.Sprintf("get %s: %v", secretName, err))
+			}
+		} else if s.Labels[maasIntegrationCRDLabel] == maasIntegrationCRDValue {
+			if err := cli.Delete(ctx, s); err != nil && !k8serr.IsNotFound(err) {
+				errs = append(errs, fmt.Sprintf("delete %s: %v", secretName, err))
+			}
 		}
 	}
 
