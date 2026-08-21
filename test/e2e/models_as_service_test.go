@@ -71,14 +71,15 @@ func maasPrerequisites(ctx context.Context, k8sClient client.Client, ns string) 
 		return fmt.Errorf("installing Prometheus CRDs: %w", err)
 	}
 
-	// 2. Webhook cert secret — maas-controller Deployment mounts this volume.
-	//    Without it the pod cannot start. cert-manager is not present in kind,
-	//    so we create a self-signed TLS secret directly.
-	//    CA bundle injection into the ValidatingWebhookConfiguration is not
-	//    needed: the three webhooks cover only aitenants/maassubscriptions/
-	//    maasauthpolicies — none of which are created by our E2E tests.
-	if err := ensureWebhookCertSecret(ctx, k8sClient, ns); err != nil {
+	// 2. TLS secrets — maas-controller Deployment mounts two TLS volumes
+	//    (webhook-cert and metrics-tls). Without them the pod cannot start.
+	//    cert-manager is not present in kind, so we create self-signed
+	//    TLS secrets directly.
+	if err := ensureTLSSecret(ctx, k8sClient, ns, "maas-controller-webhook-cert", "maas-controller-webhook-service"); err != nil {
 		return fmt.Errorf("creating webhook cert secret: %w", err)
+	}
+	if err := ensureTLSSecret(ctx, k8sClient, ns, "maas-controller-metrics-tls", "maas-controller-metrics"); err != nil {
+		return fmt.Errorf("creating metrics cert secret: %w", err)
 	}
 
 	// 3. Optional CRD stubs — maas-controller watches authpolicies and
@@ -198,27 +199,20 @@ func waitForCRDEstablished(ctx context.Context, k8sClient client.Client, crdName
 	return fmt.Errorf("CRD %s did not become Established within %v", crdName, setupTimeout)
 }
 
-// ensureWebhookCertSecret creates a self-signed TLS secret so the
-// maas-controller pod can mount its webhook-cert volume and start.
-// The secret is marked with e2eManagedLabel so cleanup can identify
-// test-created secrets and avoid deleting pre-existing ones.
-func ensureWebhookCertSecret(ctx context.Context, k8sClient client.Client, ns string) error {
-	const secretName = "maas-controller-webhook-cert"
-
+// ensureTLSSecret creates a self-signed TLS secret so the maas-controller pod
+// can mount its TLS volumes and start. The secret is marked with e2eManagedLabel
+// so cleanup can identify test-created secrets and avoid deleting pre-existing ones.
+func ensureTLSSecret(ctx context.Context, k8sClient client.Client, ns, secretName, serviceName string) error {
 	existing := &corev1.Secret{}
 	err := k8sClient.Get(ctx, client.ObjectKey{Name: secretName, Namespace: ns}, existing)
 	if err == nil {
-		// Secret already exists — only take ownership if it's not already marked
-		if existing.Labels[e2eManagedLabel] != e2eManagedValue {
-			return nil // pre-existing secret, leave it alone
-		}
-		return nil // already created by us
+		return nil // already exists
 	}
 	if !k8serr.IsNotFound(err) {
 		return err
 	}
 
-	certPEM, keyPEM, err := generateSelfSignedCert(ns)
+	certPEM, keyPEM, err := generateSelfSignedCert(ns, serviceName)
 	if err != nil {
 		return fmt.Errorf("generating TLS cert: %w", err)
 	}
@@ -238,31 +232,24 @@ func ensureWebhookCertSecret(ctx context.Context, k8sClient client.Client, ns st
 	return k8sClient.Create(ctx, secret)
 }
 
-// generateSelfSignedCert returns a PEM-encoded TLS cert and key pair for the
-// maas-controller webhook service. The cert is self-signed and intended only
-// for E2E test clusters where cert-manager is not available.
-func generateSelfSignedCert(ns string) ([]byte, []byte, error) {
+func generateSelfSignedCert(ns, serviceName string) ([]byte, []byte, error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	// Use a cryptographically random serial number to avoid collisions if the
-	// test runs multiple times on the same cluster.
 	serialMax := new(big.Int).Lsh(big.NewInt(1), 128)
 	serial, err := rand.Int(rand.Reader, serialMax)
 	if err != nil {
 		return nil, nil, fmt.Errorf("generating serial number: %w", err)
 	}
 
+	svc := fmt.Sprintf("%s.%s.svc", serviceName, ns)
 	now := time.Now()
 	template := &x509.Certificate{
-		SerialNumber:          serial,
-		Subject:               pkix.Name{CommonName: fmt.Sprintf("maas-controller-webhook-service.%s.svc", ns)},
-		DNSNames: []string{
-			fmt.Sprintf("maas-controller-webhook-service.%s.svc", ns),
-			fmt.Sprintf("maas-controller-webhook-service.%s.svc.cluster.local", ns),
-		},
+		SerialNumber: serial,
+		Subject:      pkix.Name{CommonName: svc},
+		DNSNames:     []string{svc, svc + ".cluster.local"},
 		NotBefore:             now.Add(-1 * time.Minute), // 1 min buffer for clock skew
 		NotAfter:              now.Add(24 * time.Hour),
 		IsCA:                  true,
@@ -653,19 +640,21 @@ func maasCleanup(ctx context.Context, k8sClient client.Client, ns string) {
 		}
 	}
 
-	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "maas-controller-webhook-cert", Namespace: ns},
-	}
-	if err := k8sClient.Get(ctx, client.ObjectKey{Name: secret.Name, Namespace: ns}, secret); err != nil {
-		if !k8serr.IsNotFound(err) {
-			fmt.Printf("maasCleanup: failed to get webhook cert secret: %v\n", err)
+	for _, secretName := range []string{"maas-controller-webhook-cert", "maas-controller-metrics-tls"} {
+		s := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: ns},
 		}
-		return // not found or error — nothing to clean up
-	}
-	if secret.Labels[e2eManagedLabel] != e2eManagedValue {
-		return // pre-existing secret — do not touch
-	}
-	if err := k8sClient.Delete(ctx, secret); err != nil && !k8serr.IsNotFound(err) {
-		fmt.Printf("maasCleanup: failed to delete webhook cert secret: %v\n", err)
+		if err := k8sClient.Get(ctx, client.ObjectKey{Name: secretName, Namespace: ns}, s); err != nil {
+			if !k8serr.IsNotFound(err) {
+				fmt.Printf("maasCleanup: failed to get %s: %v\n", secretName, err)
+			}
+			continue
+		}
+		if s.Labels[e2eManagedLabel] != e2eManagedValue {
+			continue
+		}
+		if err := k8sClient.Delete(ctx, s); err != nil && !k8serr.IsNotFound(err) {
+			fmt.Printf("maasCleanup: failed to delete %s: %v\n", secretName, err)
+		}
 	}
 }

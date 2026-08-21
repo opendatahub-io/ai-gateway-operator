@@ -600,12 +600,7 @@ func testMaaSReadyFalseOnOperandFailure(t *testing.T, module *componentsv1alpha1
 				if err := k8sClient.Get(patchCtx, client.ObjectKeyFromObject(deploy), deploy); err != nil {
 					continue
 				}
-				if deploy.Status.ReadyReplicas >= 1 {
-					return
-				}
-				if k8sClient.Status().Patch(patchCtx, deploy, readyStatusPatch) == nil {
-					return // patch succeeded — controller will see readyReplicas=1 on next reconcile
-				}
+				_ = k8sClient.Status().Patch(patchCtx, deploy, readyStatusPatch)
 			}
 		}
 	}()
