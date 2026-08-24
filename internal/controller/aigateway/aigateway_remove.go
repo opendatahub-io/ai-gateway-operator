@@ -16,13 +16,14 @@ import (
 )
 
 const (
-	removedState                      = "Removed"
-	maasControllerDeploymentName      = "maas-controller"
+	removedState                       = "Removed"
+	maasControllerDeploymentName       = "maas-controller"
+	aiGatewayControllerDeploymentName  = "ai-gateway-controller"
 	batchGatewayOperatorDeploymentName = "llm-d-batch-gateway-operator"
-	maasTeardownRequestedKey          = "maas.opendatahub.io/teardown-requested"
-	maasTeardownCompletedKey          = "maas.opendatahub.io/teardown-completed"
-	maasCRDComponentLabelKey          = "app.kubernetes.io/component"
-	maasCRDComponentLabelValue        = "models-as-a-service"
+	maasTeardownRequestedKey           = "maas.opendatahub.io/teardown-requested"
+	maasTeardownCompletedKey           = "maas.opendatahub.io/teardown-completed"
+	maasCRDComponentLabelKey           = "app.kubernetes.io/component"
+	maasCRDComponentLabelValue         = "models-as-a-service"
 
 	maasGCPredicateTimeout = 10 * time.Second
 )

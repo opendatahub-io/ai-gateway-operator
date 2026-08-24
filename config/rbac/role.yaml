@@ -452,17 +452,6 @@ rules:
   - networking.istio.io
   resources:
   - destinationrules
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - networking.istio.io
-  resources:
   - envoyfilters
   verbs:
   - create
@@ -470,6 +459,7 @@ rules:
   - get
   - list
   - patch
+  - update
   - watch
 - apiGroups:
   - networking.istio.io
@@ -492,6 +482,7 @@ rules:
   - get
   - list
   - patch
+  - update
   - watch
 - apiGroups:
   - opentelemetry.io
@@ -559,6 +550,20 @@ rules:
   - list
   - patch
   - watch
+- apiGroups:
+  - rbac.authorization.k8s.io
+  resourceNames:
+  - ai-gateway-controller-role
+  - ai-gateway-controller-rolebinding
+  - payload-processing-reader
+  resources:
+  - clusterrolebindings
+  - clusterroles
+  verbs:
+  - delete
+  - get
+  - patch
+  - update
 - apiGroups:
   - rbac.authorization.k8s.io
   resourceNames:

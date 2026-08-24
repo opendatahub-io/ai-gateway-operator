@@ -128,6 +128,8 @@ func TestNewModule(t *testing.T) {
 	g.Expect(m.batchGatewayManifestInfo.SourcePath).To(Equal("base"))
 	g.Expect(m.maasManifestInfo.ContextDir).To(Equal("maascontroller"))
 	g.Expect(m.maasManifestInfo.SourcePath).To(Equal("default"))
+	g.Expect(m.aiGatewayControllerManifestInfo.ContextDir).To(Equal("aigatewaycontroller"))
+	g.Expect(m.aiGatewayControllerManifestInfo.SourcePath).To(Equal("default"))
 }
 
 func TestNewModuleXKS(t *testing.T) {
@@ -144,6 +146,8 @@ func TestNewModuleXKS(t *testing.T) {
 	g.Expect(m.maasManifestInfo.ContextDir).To(Equal("maascontroller"))
 	g.Expect(m.maasManifestInfo.SourcePath).To(Equal("overlays/xks"))
 	g.Expect(m.batchGatewayManifestInfo.SourcePath).To(Equal("base"))
+	// ai-gateway-controller's SourcePath is not platform-gated (no XKS-specific overlay).
+	g.Expect(m.aiGatewayControllerManifestInfo.SourcePath).To(Equal("default"))
 }
 
 func TestNewModuleInvalidVersion(t *testing.T) {
@@ -208,8 +212,11 @@ func TestInitializeRemovedKeepsMaaSWhileCleanupPending(t *testing.T) {
 		Build()
 
 	g.Expect(m.initialize(context.Background(), rr)).To(Succeed())
-	g.Expect(rr.Manifests).To(HaveLen(1))
+	// ai-gateway-controller rides along with maas-controller while teardown
+	// is pending — same toggle, same grace-period window.
+	g.Expect(rr.Manifests).To(HaveLen(2))
 	g.Expect(rr.Manifests[0].ContextDir).To(Equal("maascontroller"))
+	g.Expect(rr.Manifests[1].ContextDir).To(Equal("aigatewaycontroller"))
 }
 
 func TestInitializeRemovedExcludesMaaSOnceTeardownCompleted(t *testing.T) {
@@ -254,9 +261,11 @@ func TestInitializeManagedMaaS(t *testing.T) {
 	rr.Client = fake.NewClientBuilder().WithScheme(newTestScheme(t)).Build()
 
 	g.Expect(m.initialize(context.Background(), rr)).To(Succeed())
-	g.Expect(rr.Manifests).To(HaveLen(1))
+	g.Expect(rr.Manifests).To(HaveLen(2))
 	g.Expect(rr.Manifests[0].Path).To(Equal("/manifests"))
 	g.Expect(rr.Manifests[0].ContextDir).To(Equal("maascontroller"))
+	g.Expect(rr.Manifests[1].Path).To(Equal("/manifests"))
+	g.Expect(rr.Manifests[1].ContextDir).To(Equal("aigatewaycontroller"))
 }
 
 func TestInitializeManagedMaaSWithoutMonitoringNamespaceEnv(t *testing.T) {
@@ -274,7 +283,7 @@ func TestInitializeManagedMaaSWithoutMonitoringNamespaceEnv(t *testing.T) {
 	rr.Client = fake.NewClientBuilder().WithScheme(newTestScheme(t)).Build()
 
 	g.Expect(m.initialize(context.Background(), rr)).To(Succeed())
-	g.Expect(rr.Manifests).To(HaveLen(1))
+	g.Expect(rr.Manifests).To(HaveLen(2))
 }
 
 func TestMaaSRemovalPendingWaitsWhileControllerHasNotCompletedTeardown(t *testing.T) {

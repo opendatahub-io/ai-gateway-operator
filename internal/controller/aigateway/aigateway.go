@@ -91,12 +91,18 @@ var maasImageParamMap = map[string]string{
 	"usage-logs-tenancy-proxy-image": "RELATED_IMAGE_ODH_PYTHON_312_IMAGE",
 }
 
+var aiGatewayControllerImageParamMap = map[string]string{
+	"ai-gateway-controller-image": "RELATED_IMAGE_ODH_AI_GATEWAY_CONTROLLER_IMAGE",
+	"praxis-extproc-image":        "RELATED_IMAGE_ODH_PRAXIS_EXTPROC_IMAGE",
+}
+
 // Module holds process-lifetime state for the aigateway controller.
 type Module struct {
-	cfg                      *moduleconfig.Config
-	version                  componentApi.SemVer
-	batchGatewayManifestInfo odhtypes.ManifestInfo
-	maasManifestInfo         odhtypes.ManifestInfo
+	cfg                             *moduleconfig.Config
+	version                         componentApi.SemVer
+	batchGatewayManifestInfo        odhtypes.ManifestInfo
+	maasManifestInfo                odhtypes.ManifestInfo
+	aiGatewayControllerManifestInfo odhtypes.ManifestInfo
 }
 
 // NewModule creates a Module with one-shot computed state.
@@ -131,11 +137,22 @@ func NewModule(cfg *moduleconfig.Config) (*Module, error) {
 		return nil, fmt.Errorf("failed to update images on path %s: %w", maasMI, err)
 	}
 
+	aiGatewayControllerMI := odhtypes.ManifestInfo{
+		Path:       cfg.ManifestsPath,
+		ContextDir: "aigatewaycontroller",
+		SourcePath: "default",
+	}
+
+	if err := odhdeploy.ApplyParams(aiGatewayControllerMI.String(), "params.env", aiGatewayControllerImageParamMap, nil); err != nil {
+		return nil, fmt.Errorf("failed to update images on path %s: %w", aiGatewayControllerMI, err)
+	}
+
 	return &Module{
-		cfg:                      cfg,
-		version:                  v,
-		batchGatewayManifestInfo: batchMI,
-		maasManifestInfo:         maasMI,
+		cfg:                             cfg,
+		version:                         v,
+		batchGatewayManifestInfo:        batchMI,
+		maasManifestInfo:                maasMI,
+		aiGatewayControllerManifestInfo: aiGatewayControllerMI,
 	}, nil
 }
 
@@ -199,6 +216,13 @@ func (m *Module) initialize(ctx context.Context, rr *odhtypes.ReconciliationRequ
 		); err != nil {
 			return fmt.Errorf("failed to update maas params.env: %w", err)
 		}
+
+		// ai-gateway-controller is maas-controller's sibling: same toggle,
+		// same teardown-grace-period window (it stays installed until MaaS
+		// finishes its own self-teardown, since praxis-extproc may still be
+		// serving traffic MaaS's teardown depends on). No dedicated
+		// ManagementState field for it yet — see DESIGN discussion.
+		rr.Manifests = append(rr.Manifests, m.aiGatewayControllerManifestInfo)
 	}
 
 	return nil
@@ -278,12 +302,19 @@ func (m *Module) reportSubModuleStatus(ctx context.Context, rr *odhtypes.Reconci
 
 	ns := m.cfg.ApplicationsNamespace
 
-	// ModelsAsAServiceReady — reflects the readyReplicas of the modelsAsAService sub-module Deployment.
+	// ModelsAsAServiceReady — reflects the readyReplicas of both the
+	// modelsAsAService sub-module Deployment and its ai-gateway-controller
+	// sibling (bound to the same ManagementState toggle; see initialize).
 	if obj.Spec.ModelsAsAService.ManagementState == managedState {
-		ready, err := deploymentAvailable(ctx, rr, maasControllerDeploymentName, ns)
+		maasReady, err := deploymentAvailable(ctx, rr, maasControllerDeploymentName, ns)
 		if err != nil {
 			return fmt.Errorf("checking %s Deployment: %w", maasControllerDeploymentName, err)
 		}
+		aiGatewayControllerReady, err := deploymentAvailable(ctx, rr, aiGatewayControllerDeploymentName, ns)
+		if err != nil {
+			return fmt.Errorf("checking %s Deployment: %w", aiGatewayControllerDeploymentName, err)
+		}
+		ready := maasReady && aiGatewayControllerReady
 		if ready {
 			rr.Conditions.MarkTrue(
 				status.ConditionModelsAsAServiceReady,
