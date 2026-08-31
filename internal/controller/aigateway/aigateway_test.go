@@ -834,6 +834,60 @@ func TestReportStatus_NoPlatformConfigMap(t *testing.T) {
 	g.Expect(obj.Status.Releases[0].Name).To(Equal("AI Gateway Operator"))
 }
 
+func TestReportStatus_ClearsStalePlatformEntryOnConfigMapDeletion(t *testing.T) {
+	g := NewWithT(t)
+
+	m := newTestModule(t)
+	obj := newTestAIGateway()
+	// Simulate a platform release stamped by a prior reconcile.
+	obj.Status.Releases = []common.ComponentRelease{
+		{Name: "AI Gateway Operator", Version: "v0.1.0"},
+		{Name: platformReleaseName, Version: "3.5.0"},
+	}
+	rr := newTestRR(obj)
+
+	scheme := runtime.NewScheme()
+	utilruntime.Must(corev1.AddToScheme(scheme))
+	// No ConfigMap — simulates deletion by the platform operator.
+	rr.Client = fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	g.Expect(m.reportStatus(context.Background(), rr)).To(Succeed())
+
+	// Stale platform entry must be cleared when the ConfigMap is absent.
+	g.Expect(obj.Status.Releases).To(HaveLen(1))
+	g.Expect(obj.Status.Releases[0].Name).To(Equal("AI Gateway Operator"))
+}
+
+func TestReportStatus_ClearsStalePlatformEntryOnKeyRemoval(t *testing.T) {
+	g := NewWithT(t)
+
+	m := newTestModule(t)
+	obj := newTestAIGateway()
+	obj.Status.Releases = []common.ComponentRelease{
+		{Name: "AI Gateway Operator", Version: "v0.1.0"},
+		{Name: platformReleaseName, Version: "3.5.0"},
+	}
+	rr := newTestRR(obj)
+
+	scheme := runtime.NewScheme()
+	utilruntime.Must(corev1.AddToScheme(scheme))
+	// ConfigMap exists but platformVersion key is absent.
+	platformCM := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      platformConfigName,
+			Namespace: "test-ns",
+		},
+		Data: map[string]string{},
+	}
+	rr.Client = fake.NewClientBuilder().WithScheme(scheme).WithObjects(platformCM).Build()
+
+	g.Expect(m.reportStatus(context.Background(), rr)).To(Succeed())
+
+	// Stale platform entry must be cleared when platformVersion key is missing.
+	g.Expect(obj.Status.Releases).To(HaveLen(1))
+	g.Expect(obj.Status.Releases[0].Name).To(Equal("AI Gateway Operator"))
+}
+
 func TestSetPlatformRelease_UpdatesExisting(t *testing.T) {
 	g := NewWithT(t)
 
@@ -901,4 +955,29 @@ func TestWithPreservedPlatformRelease_OnError(t *testing.T) {
 
 	// Platform entry must be preserved even when inner fails.
 	g.Expect(getPlatformRelease(obj).Version).To(Equal("2.19.0"))
+}
+
+func TestPlatformConfigMapPredicate(t *testing.T) {
+	pred := platformConfigMapPredicate("test-ns")
+
+	tests := []struct {
+		name     string
+		cmName   string
+		cmNS     string
+		expected bool
+	}{
+		{"matching name and namespace", platformConfigName, "test-ns", true},
+		{"wrong name", "other-cm", "test-ns", false},
+		{"wrong namespace", platformConfigName, "other-ns", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
+			obj := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{Name: tt.cmName, Namespace: tt.cmNS},
+			}
+			g.Expect(pred(obj)).To(Equal(tt.expected))
+		})
+	}
 }

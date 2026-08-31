@@ -26,6 +26,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/opendatahub-io/opendatahub-operator/v2/api/common"
@@ -385,10 +386,13 @@ func (m *Module) reportStatus(ctx context.Context, rr *odhtypes.ReconciliationRe
 	obj.Status.Module.Sources = sources
 
 	// Upgrade handshake: echo platformVersion into status.releases only after
-	// earlier actions (including upgradeIfNeeded) have succeeded. When the
-	// ConfigMap is absent (older platforms), skip the platform entry.
+	// earlier actions (including upgradeIfNeeded) have succeeded. Clear any
+	// stale platform entry when the ConfigMap is absent or the key is missing
+	// (deletion, key removal, or pre-handshake platforms).
 	if platformVersion := m.getPlatformVersion(ctx, rr); platformVersion != "" {
 		setPlatformRelease(obj, platformVersion)
+	} else {
+		clearPlatformRelease(obj)
 	}
 
 	return nil
@@ -441,6 +445,19 @@ func setPlatformRelease(instance *componentApi.AIGateway, platformVersion string
 	})
 }
 
+// clearPlatformRelease removes the platform release entry from status.releases.
+// Called when the platform config ConfigMap is absent or lacks the platformVersion
+// key, ensuring a previously stamped version does not linger after deletion.
+func clearPlatformRelease(instance *componentApi.AIGateway) {
+	result := make([]common.ComponentRelease, 0, len(instance.Status.Releases))
+	for _, r := range instance.Status.Releases {
+		if r.Name != platformReleaseName {
+			result = append(result, r)
+		}
+	}
+	instance.Status.Releases = result
+}
+
 // withPreservedPlatformRelease wraps the metadata releases action so a failed
 // reconcile cannot wipe the existing platform handshake entry. The reconciler
 // always patches status even when an action fails; releases.NewAction replaces
@@ -469,5 +486,15 @@ func withPreservedPlatformRelease(
 		}
 
 		return err
+	}
+}
+
+// platformConfigMapPredicate returns a predicate function that matches only the
+// platform-managed odh-aigateway-config ConfigMap in the given applications namespace.
+// The controller uses this to scope the ConfigMap watch, so changes to platformVersion
+// trigger a reconcile of the singleton AIGateway CR.
+func platformConfigMapPredicate(ns string) func(client.Object) bool {
+	return func(o client.Object) bool {
+		return o.GetName() == platformConfigName && o.GetNamespace() == ns
 	}
 }
