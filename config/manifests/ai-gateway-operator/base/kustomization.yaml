@@ -15,6 +15,9 @@ patches:
   - path: manager_metrics_patch.yaml
     target:
       kind: Deployment
+  - path: cert_metrics_manager_patch.yaml
+    target:
+      kind: Deployment
 
 # operator-params holds the operator image. opendatahub-operator substitutes
 # AI_GATEWAY_OPERATOR_IMAGE in params.env with the digest-pinned reference at

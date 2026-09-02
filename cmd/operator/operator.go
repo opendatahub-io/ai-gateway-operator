@@ -33,8 +33,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
-	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
-	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	componentsv1alpha1 "github.com/opendatahub-io/ai-gateway-operator/api/components/v1alpha1"
 	"github.com/opendatahub-io/ai-gateway-operator/internal/controller/aigateway"
@@ -101,14 +99,8 @@ func run(cmd *cobra.Command, _ []string) error {
 	}
 
 	mgrOpts := ctrl.Options{
-		Scheme: scheme,
-		Metrics: metricsserver.Options{
-			BindAddress:    cfg.MetricsAddr,
-			SecureServing:  true,
-			CertDir:        "/tmp/k8s-metrics-server/metrics-certs",
-			TLSOpts:        tlsResult.TLSOpts,
-			FilterProvider: filters.WithAuthenticationAndAuthorization,
-		},
+		Scheme:                        scheme,
+		Metrics:                       metricsServerOptions(cfg, tlsResult.TLSOpts),
 		HealthProbeBindAddress:        cfg.HealthProbeAddr,
 		PprofBindAddress:              cfg.PprofAddr,
 		LeaderElection:                cfg.LeaderElect,
