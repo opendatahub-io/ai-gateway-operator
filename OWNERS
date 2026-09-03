@@ -1,23 +1,15 @@
 approvers:
-  - yizhaodev
-  - zdtsw
-  - j-mok-dev
-  - lioraron
-  - vishbhat
   - chaitanya1731
   - jland-redhat
   - ishitasequeira
   - jrhyness
   - somya-bhatnagar
+  - llm-d-team
 
 reviewers:
-  - yizhaodev
-  - zdtsw
-  - j-mok-dev
-  - lioraron
-  - vishbhat
   - chaitanya1731
   - jland-redhat
   - ishitasequeira
   - jrhyness
   - somya-bhatnagar
+  - llm-d-team
