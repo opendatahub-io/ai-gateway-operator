@@ -17,8 +17,10 @@ limitations under the License.
 package operator
 
 import (
+	"context"
 	"fmt"
 
+	configv1 "github.com/openshift/api/config/v1"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	corev1 "k8s.io/api/core/v1"
@@ -31,10 +33,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
-	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	componentsv1alpha1 "github.com/opendatahub-io/ai-gateway-operator/api/components/v1alpha1"
 	"github.com/opendatahub-io/ai-gateway-operator/internal/controller/aigateway"
+	tlsinit "github.com/opendatahub-io/ai-gateway-operator/internal/tls"
 	libcache "github.com/opendatahub-io/ai-gateway-operator/pkg/cache"
 	moduleconfig "github.com/opendatahub-io/ai-gateway-operator/pkg/config"
 	dsciv2 "github.com/opendatahub-io/opendatahub-operator/v2/api/dscinitialization/v2"
@@ -52,6 +54,7 @@ var scheme = runtime.NewScheme()
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(apiextensionsv1.AddToScheme(scheme))
+	utilruntime.Must(configv1.Install(scheme))
 	utilruntime.Must(componentsv1alpha1.AddToScheme(scheme))
 	utilruntime.Must(dsciv2.AddToScheme(scheme))
 }
@@ -75,17 +78,29 @@ func run(cmd *cobra.Command, _ []string) error {
 	}
 
 	ctrl.SetLogger(zap.New(zap.UseDevMode(false)))
+	log := ctrl.Log.WithName("setup")
 
 	// Set the applications namespace so that the operator's kustomize render
 	// action can determine the target namespace without requiring DSCI.
 	viper.Set("rhai-applications-namespace", cfg.ApplicationsNamespace)
 	cluster.SetRHAIApplicationNamespace(cfg.ApplicationsNamespace)
 
+	// Fetch cluster TLS profile to configure secure metrics serving.
+	restCfg := ctrl.GetConfigOrDie()
+
+	bootstrapClient, err := client.New(restCfg, client.Options{Scheme: scheme})
+	if err != nil {
+		return fmt.Errorf("creating bootstrap client: %w", err)
+	}
+
+	tlsResult, err := tlsinit.Resolve(cmd.Context(), bootstrapClient, log)
+	if err != nil {
+		return fmt.Errorf("resolving cluster TLS profile: %w", err)
+	}
+
 	mgrOpts := ctrl.Options{
-		Scheme: scheme,
-		Metrics: metricsserver.Options{
-			BindAddress: cfg.MetricsAddr,
-		},
+		Scheme:                        scheme,
+		Metrics:                       metricsServerOptions(cfg, tlsResult.TLSOpts),
 		HealthProbeBindAddress:        cfg.HealthProbeAddr,
 		PprofBindAddress:              cfg.PprofAddr,
 		LeaderElection:                cfg.LeaderElect,
@@ -121,7 +136,7 @@ func run(cmd *cobra.Command, _ []string) error {
 		},
 	}
 
-	ctrlMgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), mgrOpts)
+	ctrlMgr, err := ctrl.NewManager(restCfg, mgrOpts)
 	if err != nil {
 		return fmt.Errorf("creating manager: %w", err)
 	}
@@ -150,5 +165,12 @@ func run(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("setting up ready check: %w", err)
 	}
 
-	return mgr.Start(cmd.Context())
+	ctx, cancel := context.WithCancel(cmd.Context())
+	defer cancel()
+
+	if err := tlsinit.SetupWatcher(mgr, tlsResult, cancel, log); err != nil {
+		return fmt.Errorf("setting up TLS profile watcher: %w", err)
+	}
+
+	return mgr.Start(ctx)
 }
