@@ -23,6 +23,7 @@ import (
 	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -89,8 +90,99 @@ func readyDeploy(name, ns string) *appsv1.Deployment {
 	}
 }
 
-// TestReportSubModuleStatus_MaaSManaged_DeploymentReady verifies ModelsAsAServiceReady=True
-// when modelsAsAService is Managed and the maas-controller Deployment is ready.
+// maasConfigObject builds an unstructured Config/default with an optional Ready
+// condition. Pass readyStatus="" to create a Config with no conditions set.
+func maasConfigObject(readyStatus, message string) *unstructured.Unstructured {
+	obj := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "maas.opendatahub.io/v1alpha1",
+			"kind":       "Config",
+			"metadata": map[string]any{
+				"name": maasConfigName,
+			},
+		},
+	}
+	if readyStatus != "" {
+		_ = unstructured.SetNestedSlice(obj.Object, []any{
+			map[string]any{
+				"type":    "Ready",
+				"status":  readyStatus,
+				"reason":  "TestReason",
+				"message": message,
+			},
+		}, "status", "conditions")
+	}
+	return obj
+}
+
+// ---------------------------------------------------------------------------
+// maasConfigReady unit tests
+// ---------------------------------------------------------------------------
+
+// TestMaasConfigReady_NotFound verifies that a missing Config (bootstrap in
+// progress) is treated as ready so the DSC is not blocked during fresh install.
+func TestMaasConfigReady_NotFound(t *testing.T) {
+	g := NewWithT(t)
+	cl := fake.NewClientBuilder().WithScheme(newTestScheme(t)).Build()
+	msg, ready, err := maasConfigReady(context.Background(), cl)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(ready).To(BeTrue(), "missing Config should not block (bootstrap in progress)")
+	g.Expect(msg).To(BeEmpty())
+}
+
+// TestMaasConfigReady_ReadyTrue verifies that Config.status.conditions[Ready]=True
+// is correctly reported as ready.
+func TestMaasConfigReady_ReadyTrue(t *testing.T) {
+	g := NewWithT(t)
+	cfg := maasConfigObject("True", "")
+	cl := fake.NewClientBuilder().WithScheme(newTestScheme(t)).WithObjects(cfg).Build()
+	msg, ready, err := maasConfigReady(context.Background(), cl)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(ready).To(BeTrue())
+	g.Expect(msg).To(BeEmpty())
+}
+
+// TestMaasConfigReady_ReadyFalse verifies that Config.status.conditions[Ready]=False
+// surfaces the condition message.
+func TestMaasConfigReady_ReadyFalse(t *testing.T) {
+	g := NewWithT(t)
+	cfg := maasConfigObject("False", "gateway openshift-ingress/maas-default-gateway not found")
+	cl := fake.NewClientBuilder().WithScheme(newTestScheme(t)).WithObjects(cfg).Build()
+	msg, ready, err := maasConfigReady(context.Background(), cl)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(ready).To(BeFalse())
+	g.Expect(msg).To(ContainSubstring("gateway"))
+}
+
+// TestMaasConfigReady_NoConditions verifies that a Config with no conditions
+// (status not yet written by the controller) is treated as ready (bootstrapping).
+func TestMaasConfigReady_NoConditions(t *testing.T) {
+	g := NewWithT(t)
+	cfg := maasConfigObject("", "") // no conditions
+	cl := fake.NewClientBuilder().WithScheme(newTestScheme(t)).WithObjects(cfg).Build()
+	msg, ready, err := maasConfigReady(context.Background(), cl)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(ready).To(BeTrue(), "Config with no conditions should not block")
+	g.Expect(msg).To(BeEmpty())
+}
+
+// TestMaasConfigReady_NilClient verifies that a nil client is treated as ready
+// (skips the check rather than panicking).
+func TestMaasConfigReady_NilClient(t *testing.T) {
+	g := NewWithT(t)
+	msg, ready, err := maasConfigReady(context.Background(), nil)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(ready).To(BeTrue())
+	g.Expect(msg).To(BeEmpty())
+}
+
+// ---------------------------------------------------------------------------
+// reportSubModuleStatus tests covering Config-status propagation
+// ---------------------------------------------------------------------------
+
+// TestReportSubModuleStatus_MaaSManaged_DeploymentsAvailable verifies
+// ModelsAsAServiceReady=True when the Deployment is ready and Config doesn't
+// exist yet (bootstrap in progress — don't block).
 func TestReportSubModuleStatus_MaaSManaged_DeploymentsAvailable(t *testing.T) {
 	g := NewWithT(t)
 
@@ -105,6 +197,46 @@ func TestReportSubModuleStatus_MaaSManaged_DeploymentsAvailable(t *testing.T) {
 	g.Expect(cond).NotTo(BeNil())
 	g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
 	g.Expect(cond.Reason).To(Equal(status.SubModuleReadyReason))
+}
+
+// TestReportSubModuleStatus_MaaSManaged_ConfigReadyTrue verifies
+// ModelsAsAServiceReady=True when the Deployment is ready and Config.Ready=True.
+func TestReportSubModuleStatus_MaaSManaged_ConfigReadyTrue(t *testing.T) {
+	g := NewWithT(t)
+
+	m := newTestModuleWithNamespace(t, "opendatahub")
+	obj := newTestAIGateway()
+	obj.Spec.ModelsAsAService.ManagementState = managedState
+	cfg := maasConfigObject("True", "")
+	rr := newSubModuleRR(t, obj, readyDeploy(maasControllerDeploymentName, "opendatahub"), cfg)
+
+	g.Expect(m.reportSubModuleStatus(context.Background(), rr)).To(Succeed())
+
+	cond := rr.Conditions.GetCondition(status.ConditionModelsAsAServiceReady)
+	g.Expect(cond).NotTo(BeNil())
+	g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+	g.Expect(cond.Reason).To(Equal(status.SubModuleReadyReason))
+}
+
+// TestReportSubModuleStatus_MaaSManaged_ConfigReadyFalse verifies that
+// ModelsAsAServiceReady=False with the Config error message when the Deployment
+// is running but Config.Ready=False (e.g. missing gateway or Authorino CRD).
+func TestReportSubModuleStatus_MaaSManaged_ConfigReadyFalse(t *testing.T) {
+	g := NewWithT(t)
+
+	m := newTestModuleWithNamespace(t, "opendatahub")
+	obj := newTestAIGateway()
+	obj.Spec.ModelsAsAService.ManagementState = managedState
+	cfg := maasConfigObject("False", "gateway openshift-ingress/maas-default-gateway not found")
+	rr := newSubModuleRR(t, obj, readyDeploy(maasControllerDeploymentName, "opendatahub"), cfg)
+
+	g.Expect(m.reportSubModuleStatus(context.Background(), rr)).To(Succeed())
+
+	cond := rr.Conditions.GetCondition(status.ConditionModelsAsAServiceReady)
+	g.Expect(cond).NotTo(BeNil())
+	g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+	g.Expect(cond.Reason).To(Equal(status.SubModuleNotReadyReason))
+	g.Expect(cond.Message).To(ContainSubstring("gateway"))
 }
 
 // TestReportSubModuleStatus_MaaSManaged_DeploymentAbsent verifies ModelsAsAServiceReady=False
@@ -134,7 +266,6 @@ func TestReportSubModuleStatus_MaaSManaged_DeploymentZeroReplicas(t *testing.T) 
 	m := newTestModuleWithNamespace(t, "opendatahub")
 	obj := newTestAIGateway()
 	obj.Spec.ModelsAsAService.ManagementState = managedState
-	// Deployment exists but no ready replicas
 	deploy := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{Name: maasControllerDeploymentName, Namespace: "opendatahub"},
 		Status:     appsv1.DeploymentStatus{ReadyReplicas: 0},
