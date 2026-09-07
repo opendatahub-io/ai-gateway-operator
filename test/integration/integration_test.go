@@ -128,6 +128,15 @@ func runTestMain(m *testing.M) int {
 		return 1
 	}
 
+	// Install MaaS CRDs so the Config Watch registered by NewReconciler can start.
+	// The Config CRD is normally applied by AGO on its first reconcile; installing
+	// it here avoids the "no matches for kind Config" error during manager startup.
+	if err := support.InstallCRDs(ctx, directClient,
+		support.MustProjectFile("config", "manifests", "maascontroller", "crd", "bases")); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to install MaaS CRDs: %v\n", err)
+		return 1
+	}
+
 	_ = directClient.DeleteAllOf(ctx, &componentsv1alpha1.AIGateway{})
 	_ = directClient.DeleteAllOf(ctx, &appsv1.Deployment{}, client.InNamespace(testNamespace))
 	_ = directClient.DeleteAllOf(ctx, &corev1.Service{}, client.InNamespace(testNamespace))
