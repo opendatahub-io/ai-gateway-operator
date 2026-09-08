@@ -32,6 +32,8 @@ import (
 
 const (
 	KeyMetricsAddr      = "metrics-bind-address"
+	KeyMetricsSecure    = "metrics-secure"
+	KeyMetricsCertPath  = "metrics-cert-path"
 	KeyHealthProbeAddr  = "health-probe-bind-address"
 	KeyPprofAddr        = "pprof-addr"
 	KeyLeaderElect      = "leader-elect"
@@ -42,6 +44,8 @@ const (
 	KeyPlatformVersion  = "platform-version"
 
 	DefaultMetricsAddr      = ":8080"
+	DefaultMetricsSecure    = false
+	DefaultMetricsCertPath  = ""
 	DefaultHealthProbeAddr  = ":8081"
 	DefaultLeaderElect      = true
 	DefaultLeaderElectionID = "ai-gateway-lock"
@@ -75,6 +79,13 @@ var structuredExtensions = map[string]bool{
 type Config struct {
 	// MetricsAddr is the address the metrics endpoint binds to (0 to disable).
 	MetricsAddr string `mapstructure:"metrics-bind-address"`
+	// MetricsSecure serves /metrics over HTTPS with authn/authz when true.
+	// Use false on xKS or local runs where service-ca is not available.
+	MetricsSecure bool `mapstructure:"metrics-secure"`
+	// MetricsCertPath is the directory containing the metrics server TLS cert
+	// and key. Empty leaves CertDir unset so controller-runtime can generate
+	// in-memory certificates when MetricsSecure is true.
+	MetricsCertPath string `mapstructure:"metrics-cert-path"`
 	// HealthProbeAddr is the address the health probe endpoint binds to.
 	HealthProbeAddr string `mapstructure:"health-probe-bind-address"`
 	// PprofAddr is the address the pprof endpoint binds to (empty = disabled).
@@ -157,6 +168,8 @@ func LoadFromFS(fsys fs.FS) (*Config, error) {
 
 func setDefaults(v *viper.Viper) {
 	v.SetDefault(KeyMetricsAddr, DefaultMetricsAddr)
+	v.SetDefault(KeyMetricsSecure, DefaultMetricsSecure)
+	v.SetDefault(KeyMetricsCertPath, DefaultMetricsCertPath)
 	v.SetDefault(KeyHealthProbeAddr, DefaultHealthProbeAddr)
 	v.SetDefault(KeyLeaderElect, DefaultLeaderElect)
 	v.SetDefault(KeyLeaderElectionID, DefaultLeaderElectionID)

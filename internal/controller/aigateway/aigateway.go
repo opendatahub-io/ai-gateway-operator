@@ -25,6 +25,9 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -59,6 +62,9 @@ const (
 	platformConfigName  = "odh-" + componentApi.AIGatewayComponentName + "-config"
 	platformVersionKey  = "platformVersion"
 	platformReleaseName = "platform"
+
+	// maasConfigName is the singleton Config anchor created by the maas-controller.
+	maasConfigName = "default"
 )
 
 // deriveInfrastructureNamespace maps the applications namespace to the infrastructure
@@ -267,6 +273,53 @@ func deploymentAvailable(ctx context.Context, rr *odhtypes.ReconciliationRequest
 	return deploy.Status.ReadyReplicas >= 1, nil
 }
 
+// maasConfigReady reads Config/default and reports whether its Ready condition is True.
+// Uses unstructured to avoid a Go module dependency on the maas-controller API package.
+//
+// Returns ("", true, nil) when Ready=True or when Config/its CRD doesn't exist yet
+// (bootstrap in progress — the controller will create it shortly and the next reconcile
+// will recheck). Returns (message, false, nil) when Ready=False.
+// Propagates unexpected GET errors.
+func maasConfigReady(ctx context.Context, c client.Client) (string, bool, error) {
+	if c == nil {
+		return "", true, nil
+	}
+	cfg := &unstructured.Unstructured{}
+	cfg.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "maas.opendatahub.io",
+		Version: "v1alpha1",
+		Kind:    "Config",
+	})
+	if err := c.Get(ctx, types.NamespacedName{Name: maasConfigName}, cfg); err != nil {
+		// Config object not found or its CRD not yet installed — both are
+		// transient states during bootstrap. Don't block readiness.
+		if k8serr.IsNotFound(err) || apimeta.IsNoMatchError(err) {
+			return "", true, nil
+		}
+		return "", false, err
+	}
+	rawConditions, _, _ := unstructured.NestedSlice(cfg.Object, "status", "conditions")
+	for _, item := range rawConditions {
+		cond, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if cond["type"] != "Ready" {
+			continue
+		}
+		if cond["status"] == "True" {
+			return "", true, nil
+		}
+		msg, _ := cond["message"].(string)
+		if msg == "" {
+			msg = "MaaS operands are not ready; check Config/default status for details"
+		}
+		return msg, false, nil
+	}
+	// No Ready condition set yet — still bootstrapping.
+	return "", true, nil
+}
+
 // reportSubModuleStatus sets per-sub-module Ready conditions on the AIGateway CR.
 // Each condition is derived from its specific Deployment so that the conditions
 // are independent — one sub-module failing does not affect another's condition.
@@ -279,17 +332,31 @@ func (m *Module) reportSubModuleStatus(ctx context.Context, rr *odhtypes.Reconci
 	ns := m.cfg.ApplicationsNamespace
 
 	// ModelsAsAServiceReady — reflects the readyReplicas of the modelsAsAService sub-module Deployment.
+	// When the Deployment is ready, also checks Config.status.conditions[Ready] to surface
+	// operand-level configuration errors (missing gateway, postgres secret, Authorino CRD) in the DSC.
 	if obj.Spec.ModelsAsAService.ManagementState == managedState {
 		ready, err := deploymentAvailable(ctx, rr, maasControllerDeploymentName, ns)
 		if err != nil {
 			return fmt.Errorf("checking %s Deployment: %w", maasControllerDeploymentName, err)
 		}
 		if ready {
-			rr.Conditions.MarkTrue(
-				status.ConditionModelsAsAServiceReady,
-				conditions.WithReason(status.SubModuleReadyReason),
-				conditions.WithMessage("modelsAsAService is Managed and deployments are available"),
-			)
+			configMsg, configReady, err := maasConfigReady(ctx, rr.Client)
+			if err != nil {
+				return fmt.Errorf("checking MaaS Config operand status: %w", err)
+			}
+			if configReady {
+				rr.Conditions.MarkTrue(
+					status.ConditionModelsAsAServiceReady,
+					conditions.WithReason(status.SubModuleReadyReason),
+					conditions.WithMessage("modelsAsAService is Managed and deployments are available"),
+				)
+			} else {
+				rr.Conditions.MarkFalse(
+					status.ConditionModelsAsAServiceReady,
+					conditions.WithReason(status.SubModuleNotReadyReason),
+					conditions.WithMessage("%s", configMsg),
+				)
+			}
 		} else {
 			rr.Conditions.MarkFalse(
 				status.ConditionModelsAsAServiceReady,
