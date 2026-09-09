@@ -10,6 +10,8 @@ resources:
   - ../../../rbac
   - ../../../manager
   - metrics_service.yaml
+  - tls_profile_role.yaml
+  - tls_profile_clusterrolebinding.yaml
 
 patches:
   - path: manager_metrics_patch.yaml
