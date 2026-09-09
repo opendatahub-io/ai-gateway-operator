@@ -92,6 +92,7 @@ import (
 // +kubebuilder:rbac:groups=apps,resources=deployments/finalizers,verbs=update
 // +kubebuilder:rbac:groups=authentication.k8s.io,resources=tokenreviews,verbs=create
 // +kubebuilder:rbac:groups=authorization.k8s.io,resources=subjectaccessreviews,verbs=create
+// +kubebuilder:rbac:groups=autoscaling,resources=horizontalpodautoscalers,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups=batch,resources=cronjobs,verbs=create;delete;get;list;patch;watch
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=create;delete;get
 // +kubebuilder:rbac:groups=components.platform.opendatahub.io,resources=modelsasservices,verbs=get;list;patch;update;watch
@@ -108,7 +109,7 @@ import (
 // +kubebuilder:rbac:groups=kuadrant.io,resources=authpolicies;tokenratelimitpolicies,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups=kuadrant.io,resources=ratelimitpolicies;telemetrypolicies,verbs=create;delete;get;list;patch;watch
 // +kubebuilder:rbac:groups=maas.opendatahub.io,resources=aitenants;configs;externalmodels;maasauthpolicies;maasmodelrefs;maassubscriptions;maastenantconfigs;tenants,verbs=create;delete;get;list;patch;update;watch
-// +kubebuilder:rbac:groups=maas.opendatahub.io,resources=aitenants/status;configs/status;maasauthpolicies/status;maasmodelrefs/status;maassubscriptions/status;maastenantconfigs/status;tenants/status,verbs=get;patch;update
+// +kubebuilder:rbac:groups=maas.opendatahub.io,resources=aitenants/status;configs/status;externalmodels/status;maasauthpolicies/status;maasmodelrefs/status;maassubscriptions/status;maastenantconfigs/status;tenants/status,verbs=get;patch;update
 // +kubebuilder:rbac:groups=maas.opendatahub.io,resources=aitenants/finalizers;configs/finalizers;externalmodels/finalizers;maasauthpolicies/finalizers;maasmodelrefs/finalizers;maassubscriptions/finalizers,verbs=update
 // +kubebuilder:rbac:groups=monitoring.coreos.com,resources=podmonitors;servicemonitors,verbs=create;delete;get;list;patch;watch
 // +kubebuilder:rbac:groups=networking.istio.io,resources=destinationrules,verbs=create;delete;get;list;patch;update;watch
