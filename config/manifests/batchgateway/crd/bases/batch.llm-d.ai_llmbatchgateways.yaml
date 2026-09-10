@@ -1021,6 +1021,14 @@ spec:
                         maxLength: 32
                         pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
                         type: string
+                      inferenceObjective:
+                        description: |-
+                          InferenceObjective is applied to globalInferenceGateway and to every
+                          modelGateways entry that does not set its own inferenceObjective.
+
+                          Deprecated: set inferenceObjective on the gateway instead.
+                        maxLength: 253
+                        type: string
                       logging:
                         description: Logging configures log verbosity for the processor.
                         properties:
