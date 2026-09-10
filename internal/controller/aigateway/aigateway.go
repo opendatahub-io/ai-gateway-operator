@@ -67,6 +67,13 @@ const (
 	maasConfigName = "default"
 )
 
+// maasConfigGVK identifies the MaaS Config CRD for dynamic watch registration.
+var maasConfigGVK = schema.GroupVersionKind{
+	Group:   "maas.opendatahub.io",
+	Version: "v1alpha1",
+	Kind:    "Config",
+}
+
 // deriveInfrastructureNamespace maps the applications namespace to the infrastructure
 // namespace used for maas-api, postgres, and cross-namespace secret migration.
 // Mirrors the logic in models-as-a-service maas-controller/cmd/manager/main.go:deriveInfraNamespace.
@@ -285,11 +292,7 @@ func maasConfigReady(ctx context.Context, c client.Client) (string, bool, error)
 		return "", true, nil
 	}
 	cfg := &unstructured.Unstructured{}
-	cfg.SetGroupVersionKind(schema.GroupVersionKind{
-		Group:   "maas.opendatahub.io",
-		Version: "v1alpha1",
-		Kind:    "Config",
-	})
+	cfg.SetGroupVersionKind(maasConfigGVK)
 	if err := c.Get(ctx, types.NamespacedName{Name: maasConfigName}, cfg); err != nil {
 		// Config object not found or its CRD not yet installed — both are
 		// transient states during bootstrap. Don't block readiness.
@@ -318,6 +321,47 @@ func maasConfigReady(ctx context.Context, c client.Client) (string, bool, error)
 	}
 	// No Ready condition set yet — still bootstrapping.
 	return "", true, nil
+}
+
+// tenantsHealthFromConfig reads the TenantsHealthy condition from Config/default status.
+// The maas-controller aggregates all AITenant Ready conditions into this condition
+// using the ADR ODH-ADR-MS-0003 three-state model (Healthy/Degraded/Blocked).
+//
+// Returns (reason, message, healthy, err). When Config or the CRD doesn't exist yet
+// (bootstrap in progress), returns ("", "", true, nil) — same as maasConfigReady.
+func tenantsHealthFromConfig(ctx context.Context, c client.Client) (reason, msg string, healthy bool, err error) {
+	if c == nil {
+		return "", "", true, nil
+	}
+	cfg := &unstructured.Unstructured{}
+	cfg.SetGroupVersionKind(maasConfigGVK)
+	if err := c.Get(ctx, types.NamespacedName{Name: maasConfigName}, cfg); err != nil {
+		if k8serr.IsNotFound(err) || apimeta.IsNoMatchError(err) {
+			return "", "", true, nil
+		}
+		return "", "", false, err
+	}
+	rawConditions, _, _ := unstructured.NestedSlice(cfg.Object, "status", "conditions")
+	for _, item := range rawConditions {
+		cond, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if cond["type"] != "TenantsHealthy" {
+			continue
+		}
+		r, _ := cond["reason"].(string)
+		m, _ := cond["message"].(string)
+		if cond["status"] == "True" {
+			return r, m, true, nil
+		}
+		if m == "" {
+			m = "tenant health check failed; check Config/default status for details"
+		}
+		return r, m, false, nil
+	}
+	// No TenantsHealthy condition set yet — still bootstrapping.
+	return "", "", true, nil
 }
 
 // reportSubModuleStatus sets per-sub-module Ready conditions on the AIGateway CR.
@@ -370,6 +414,48 @@ func (m *Module) reportSubModuleStatus(ctx context.Context, rr *odhtypes.Reconci
 			conditions.WithSeverity(common.ConditionSeverityInfo),
 			conditions.WithReason(status.SubModuleRemovedReason),
 			conditions.WithMessage("modelsAsAService ManagementState is Removed"),
+		)
+	}
+
+	// TenantsHealthy — mirrors the TenantsHealthy condition from Config/default status.
+	// The maas-controller aggregates all AITenant Ready conditions into that condition
+	// using the ADR ODH-ADR-MS-0003 three-state model (Healthy / Degraded / Blocked).
+	if obj.Spec.ModelsAsAService.ManagementState == managedState {
+		reason, msg, healthy, err := tenantsHealthFromConfig(ctx, rr.Client)
+		if err != nil {
+			return fmt.Errorf("checking tenant health from Config: %w", err)
+		}
+		if healthy {
+			r := status.TenantsHealthyReason
+			if reason == status.TenantsNoneReason {
+				r = status.TenantsNoneReason
+			} else if reason != "" {
+				r = reason
+			}
+			rr.Conditions.MarkTrue(
+				status.ConditionTenantsHealthy,
+				conditions.WithReason(r),
+				conditions.WithMessage("%s", msg),
+			)
+		} else {
+			r := status.TenantsDegradedReason
+			if reason == status.TenantsBlockedReason {
+				r = status.TenantsBlockedReason
+			} else if reason != "" {
+				r = reason
+			}
+			rr.Conditions.MarkFalse(
+				status.ConditionTenantsHealthy,
+				conditions.WithReason(r),
+				conditions.WithMessage("%s", msg),
+			)
+		}
+	} else {
+		rr.Conditions.MarkFalse(
+			status.ConditionTenantsHealthy,
+			conditions.WithSeverity(common.ConditionSeverityInfo),
+			conditions.WithReason(status.SubModuleRemovedReason),
+			conditions.WithMessage("modelsAsAService ManagementState is Removed; tenant health not applicable"),
 		)
 	}
 

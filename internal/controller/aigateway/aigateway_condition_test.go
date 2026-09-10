@@ -323,6 +323,200 @@ func TestReportSubModuleStatus_BothManaged(t *testing.T) {
 	g.Expect(batch.Reason).To(Equal(status.SubModuleNotReadyReason))
 }
 
+// ---------------------------------------------------------------------------
+// tenantsHealthFromConfig unit tests
+// ---------------------------------------------------------------------------
+
+// maasConfigWithConditions builds an unstructured Config/default with arbitrary conditions.
+func maasConfigWithConditions(conditions ...map[string]any) *unstructured.Unstructured {
+	obj := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "maas.opendatahub.io/v1alpha1",
+			"kind":       "Config",
+			"metadata": map[string]any{
+				"name": maasConfigName,
+			},
+		},
+	}
+	if len(conditions) > 0 {
+		conds := make([]any, len(conditions))
+		for i, c := range conditions {
+			conds[i] = c
+		}
+		_ = unstructured.SetNestedSlice(obj.Object, conds, "status", "conditions")
+	}
+	return obj
+}
+
+func TestTenantsHealthFromConfig_NotFound(t *testing.T) {
+	g := NewWithT(t)
+	cl := fake.NewClientBuilder().WithScheme(newTestScheme(t)).Build()
+	reason, msg, healthy, err := tenantsHealthFromConfig(context.Background(), cl)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(healthy).To(BeTrue(), "missing Config should not block (bootstrap)")
+	g.Expect(reason).To(BeEmpty())
+	g.Expect(msg).To(BeEmpty())
+}
+
+func TestTenantsHealthFromConfig_NilClient(t *testing.T) {
+	g := NewWithT(t)
+	_, _, healthy, err := tenantsHealthFromConfig(context.Background(), nil)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(healthy).To(BeTrue())
+}
+
+func TestTenantsHealthFromConfig_Healthy(t *testing.T) {
+	g := NewWithT(t)
+	cfg := maasConfigWithConditions(map[string]any{
+		"type":    "TenantsHealthy",
+		"status":  "True",
+		"reason":  "AllTenantsHealthy",
+		"message": "all 2 tenant(s) healthy",
+	})
+	cl := fake.NewClientBuilder().WithScheme(newTestScheme(t)).WithObjects(cfg).Build()
+	reason, msg, healthy, err := tenantsHealthFromConfig(context.Background(), cl)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(healthy).To(BeTrue())
+	g.Expect(reason).To(Equal("AllTenantsHealthy"))
+	g.Expect(msg).To(ContainSubstring("2 tenant(s) healthy"))
+}
+
+func TestTenantsHealthFromConfig_Degraded(t *testing.T) {
+	g := NewWithT(t)
+	cfg := maasConfigWithConditions(map[string]any{
+		"type":    "TenantsHealthy",
+		"status":  "False",
+		"reason":  "TenantsDegraded",
+		"message": "1 of 3 tenant(s) unhealthy: ns-b/team-b",
+	})
+	cl := fake.NewClientBuilder().WithScheme(newTestScheme(t)).WithObjects(cfg).Build()
+	reason, msg, healthy, err := tenantsHealthFromConfig(context.Background(), cl)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(healthy).To(BeFalse())
+	g.Expect(reason).To(Equal("TenantsDegraded"))
+	g.Expect(msg).To(ContainSubstring("ns-b/team-b"))
+}
+
+func TestTenantsHealthFromConfig_Blocked(t *testing.T) {
+	g := NewWithT(t)
+	cfg := maasConfigWithConditions(map[string]any{
+		"type":    "TenantsHealthy",
+		"status":  "False",
+		"reason":  "TenantsBlocked",
+		"message": "all 2 tenant(s) unhealthy: ns-a/default, ns-b/team-b",
+	})
+	cl := fake.NewClientBuilder().WithScheme(newTestScheme(t)).WithObjects(cfg).Build()
+	reason, msg, healthy, err := tenantsHealthFromConfig(context.Background(), cl)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(healthy).To(BeFalse())
+	g.Expect(reason).To(Equal("TenantsBlocked"))
+	g.Expect(msg).To(ContainSubstring("all 2"))
+}
+
+func TestTenantsHealthFromConfig_NoTenantsFound(t *testing.T) {
+	g := NewWithT(t)
+	cfg := maasConfigWithConditions(map[string]any{
+		"type":    "TenantsHealthy",
+		"status":  "True",
+		"reason":  "NoTenantsFound",
+		"message": "no AITenant resources found",
+	})
+	cl := fake.NewClientBuilder().WithScheme(newTestScheme(t)).WithObjects(cfg).Build()
+	reason, msg, healthy, err := tenantsHealthFromConfig(context.Background(), cl)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(healthy).To(BeTrue())
+	g.Expect(reason).To(Equal("NoTenantsFound"))
+	g.Expect(msg).To(ContainSubstring("no AITenant"))
+}
+
+func TestTenantsHealthFromConfig_NoConditions(t *testing.T) {
+	g := NewWithT(t)
+	cfg := maasConfigWithConditions() // no conditions
+	cl := fake.NewClientBuilder().WithScheme(newTestScheme(t)).WithObjects(cfg).Build()
+	_, _, healthy, err := tenantsHealthFromConfig(context.Background(), cl)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(healthy).To(BeTrue(), "Config without TenantsHealthy condition should not block")
+}
+
+// ---------------------------------------------------------------------------
+// reportSubModuleStatus – TenantsHealthy integration tests
+// ---------------------------------------------------------------------------
+
+func TestReportSubModuleStatus_TenantsHealthy(t *testing.T) {
+	g := NewWithT(t)
+	m := newTestModule(t)
+	obj := newTestAIGateway()
+	obj.Spec.ModelsAsAService.ManagementState = managedState
+
+	maasDep := readyDeploy(maasControllerDeploymentName, m.cfg.ApplicationsNamespace)
+	cfg := maasConfigWithConditions(
+		map[string]any{"type": "Ready", "status": "True", "reason": "AllOperandsReady", "message": "ok"},
+		map[string]any{"type": "TenantsHealthy", "status": "True", "reason": "AllTenantsHealthy", "message": "all 2 tenant(s) healthy"},
+	)
+	rr := newSubModuleRR(t, obj, maasDep, cfg)
+	g.Expect(m.reportSubModuleStatus(context.Background(), rr)).To(Succeed())
+
+	cond := rr.Conditions.GetCondition(status.ConditionTenantsHealthy)
+	g.Expect(cond).NotTo(BeNil())
+	g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+	g.Expect(cond.Reason).To(Equal(status.TenantsHealthyReason))
+}
+
+func TestReportSubModuleStatus_TenantsDegraded(t *testing.T) {
+	g := NewWithT(t)
+	m := newTestModule(t)
+	obj := newTestAIGateway()
+	obj.Spec.ModelsAsAService.ManagementState = managedState
+
+	maasDep := readyDeploy(maasControllerDeploymentName, m.cfg.ApplicationsNamespace)
+	cfg := maasConfigWithConditions(
+		map[string]any{"type": "Ready", "status": "True", "reason": "AllOperandsReady", "message": "ok"},
+		map[string]any{"type": "TenantsHealthy", "status": "False", "reason": "TenantsDegraded", "message": "1 of 2 tenant(s) unhealthy"},
+	)
+	rr := newSubModuleRR(t, obj, maasDep, cfg)
+	g.Expect(m.reportSubModuleStatus(context.Background(), rr)).To(Succeed())
+
+	cond := rr.Conditions.GetCondition(status.ConditionTenantsHealthy)
+	g.Expect(cond).NotTo(BeNil())
+	g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+	g.Expect(cond.Reason).To(Equal(status.TenantsDegradedReason))
+}
+
+func TestReportSubModuleStatus_TenantsBlocked(t *testing.T) {
+	g := NewWithT(t)
+	m := newTestModule(t)
+	obj := newTestAIGateway()
+	obj.Spec.ModelsAsAService.ManagementState = managedState
+
+	maasDep := readyDeploy(maasControllerDeploymentName, m.cfg.ApplicationsNamespace)
+	cfg := maasConfigWithConditions(
+		map[string]any{"type": "Ready", "status": "True", "reason": "AllOperandsReady", "message": "ok"},
+		map[string]any{"type": "TenantsHealthy", "status": "False", "reason": "TenantsBlocked", "message": "all 2 tenant(s) unhealthy"},
+	)
+	rr := newSubModuleRR(t, obj, maasDep, cfg)
+	g.Expect(m.reportSubModuleStatus(context.Background(), rr)).To(Succeed())
+
+	cond := rr.Conditions.GetCondition(status.ConditionTenantsHealthy)
+	g.Expect(cond).NotTo(BeNil())
+	g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+	g.Expect(cond.Reason).To(Equal(status.TenantsBlockedReason))
+}
+
+func TestReportSubModuleStatus_TenantsHealthy_MaaSRemoved(t *testing.T) {
+	g := NewWithT(t)
+	m := newTestModule(t)
+	obj := newTestAIGateway()
+	obj.Spec.ModelsAsAService.ManagementState = removedState
+
+	rr := newSubModuleRR(t, obj)
+	g.Expect(m.reportSubModuleStatus(context.Background(), rr)).To(Succeed())
+
+	cond := rr.Conditions.GetCondition(status.ConditionTenantsHealthy)
+	g.Expect(cond).NotTo(BeNil())
+	g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+	g.Expect(cond.Reason).To(Equal(status.SubModuleRemovedReason))
+}
+
 // TestOverWriteConditionWhenManaged verifies that when a sub-module is Managed,
 // overWriteCondition keeps DeploymentsAvailable as-is, so a real failure stays
 // Error and Ready stays False.
