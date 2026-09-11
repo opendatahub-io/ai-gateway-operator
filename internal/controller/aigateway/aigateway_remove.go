@@ -16,13 +16,15 @@ import (
 )
 
 const (
-	removedState                       = "Removed"
-	maasControllerDeploymentName       = "maas-controller"
-	batchGatewayOperatorDeploymentName = "llm-d-batch-gateway-operator"
-	maasTeardownRequestedKey           = "maas.opendatahub.io/teardown-requested"
-	maasTeardownCompletedKey           = "maas.opendatahub.io/teardown-completed"
-	maasCRDComponentLabelKey           = "app.kubernetes.io/component"
-	maasCRDComponentLabelValue         = "models-as-a-service"
+	removedState                           = "Removed"
+	maasControllerDeploymentName           = "maas-controller"
+	aiGatewayControllerDeploymentName      = "ai-gateway-controller"
+	batchGatewayOperatorDeploymentName     = "llm-d-batch-gateway-operator"
+	maasTeardownRequestedKey               = "maas.opendatahub.io/teardown-requested"
+	maasTeardownCompletedKey               = "maas.opendatahub.io/teardown-completed"
+	maasCRDComponentLabelKey               = "app.kubernetes.io/component"
+	maasCRDComponentLabelValue             = "models-as-a-service"
+	aiGatewayControllerComponentLabelValue = "ai-gateway-controller"
 
 	maasGCPredicateTimeout = 10 * time.Second
 )
@@ -138,18 +140,21 @@ func (m *Module) maasTeardownCompleted(ctx context.Context, cli client.Client) (
 // maasAwareGCPredicate augments gc.DefaultObjectPredicate for the gc.NewAction
 // pipeline step: besides the default generation-based staleness check, maas-controller
 // bundle resources (identified by their app.kubernetes.io/component=models-as-a-service
-// label) also become deletable once maas-controller has reported completion via
-// TeardownCompletedAnnotation. The AIGateway CR's .metadata.generation never changes as
-// part of that signal - nothing about the AIGateway spec changed, completion is signaled
-// out-of-band via the maas-controller Deployment's own annotation - so the default
-// predicate alone would never consider these resources eligible for collection.
+// label) AND ai-gateway-controller bundle resources (component=ai-gateway-controller -
+// it rides along on the same ManagementState toggle, see initialize) also become
+// deletable once maas-controller has reported completion via TeardownCompletedAnnotation.
+// The AIGateway CR's .metadata.generation never changes as part of that signal - nothing
+// about the AIGateway spec changed, completion is signaled out-of-band via the
+// maas-controller Deployment's own annotation - so the default predicate alone would
+// never consider either bundle's resources eligible for collection.
 func (m *Module) maasAwareGCPredicate(rr *odhtypes.ReconciliationRequest, obj unstructured.Unstructured) (bool, error) {
 	deletable, err := gc.DefaultObjectPredicate(rr, obj)
 	if err != nil || deletable {
 		return deletable, err
 	}
 
-	if obj.GetLabels()[maasCRDComponentLabelKey] != maasCRDComponentLabelValue {
+	component := obj.GetLabels()[maasCRDComponentLabelKey]
+	if component != maasCRDComponentLabelValue && component != aiGatewayControllerComponentLabelValue {
 		return false, nil
 	}
 	if rr.Client == nil {
