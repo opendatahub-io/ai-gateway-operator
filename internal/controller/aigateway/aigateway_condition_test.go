@@ -212,7 +212,11 @@ func TestReportSubModuleStatus_MaaSManaged_ConfigReadyTrue(t *testing.T) {
 	obj := newTestAIGateway()
 	obj.Spec.ModelsAsAService.ManagementState = managedState
 	cfg := maasConfigObject("True", "")
-	rr := newSubModuleRR(t, obj, readyDeploy(maasControllerDeploymentName, "opendatahub"), cfg)
+	rr := newSubModuleRR(t, obj,
+		readyDeploy(maasControllerDeploymentName, "opendatahub"),
+		readyDeploy(aiGatewayControllerDeploymentName, "opendatahub"),
+		cfg,
+	)
 
 	g.Expect(m.reportSubModuleStatus(context.Background(), rr)).To(Succeed())
 
@@ -232,7 +236,11 @@ func TestReportSubModuleStatus_MaaSManaged_ConfigReadyFalse(t *testing.T) {
 	obj := newTestAIGateway()
 	obj.Spec.ModelsAsAService.ManagementState = managedState
 	cfg := maasConfigObject("False", "gateway openshift-ingress/maas-default-gateway not found")
-	rr := newSubModuleRR(t, obj, readyDeploy(maasControllerDeploymentName, "opendatahub"), cfg)
+	rr := newSubModuleRR(t, obj,
+		readyDeploy(maasControllerDeploymentName, "opendatahub"),
+		readyDeploy(aiGatewayControllerDeploymentName, "opendatahub"),
+		cfg,
+	)
 
 	g.Expect(m.reportSubModuleStatus(context.Background(), rr)).To(Succeed())
 
