@@ -166,6 +166,18 @@ func NewReconciler(
 				}}}
 			}),
 		).
+		// Watch the MaaS Config singleton so status changes (e.g. TenantsHealthy)
+		// trigger a reconcile. Dynamic because the Config CRD is deployed by this
+		// operator and may not exist at startup.
+		WatchesGVK(maasConfigGVK,
+			reconciler.Dynamic(reconciler.CrdExists(maasConfigGVK)),
+			reconciler.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
+			reconciler.WithEventMapper(func(_ context.Context, _ client.Object) []reconcile.Request {
+				return []reconcile.Request{{NamespacedName: types.NamespacedName{
+					Name: componentApi.AIGatewayInstanceName,
+				}}}
+			}),
+		).
 		WithAction(m.initialize).
 		WithAction(m.ensureInfraSecretMigrationRBAC).
 		WithAction(m.upgradeIfNeeded).
