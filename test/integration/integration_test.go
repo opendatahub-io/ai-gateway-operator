@@ -553,6 +553,12 @@ func TestAIGateway_MaaS(t *testing.T) {
 			Namespace: ns,
 		},
 	}
+	aiGatewayControllerDeploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "ai-gateway-controller",
+			Namespace: ns,
+		},
+	}
 
 	_ = k8sClient.Delete(ctx, module)
 	waitForSingletonDeleted(t, module)
@@ -569,25 +575,31 @@ func TestAIGateway_MaaS(t *testing.T) {
 	})
 
 	t.Run("should set Ready=False when maas-controller is unavailable", func(t *testing.T) {
-		testMaaSReadyFalseOnOperandFailure(t, module, maasControllerDeploy)
+		testMaaSReadyFalseOnOperandFailure(t, module, maasControllerDeploy, aiGatewayControllerDeploy)
 	})
 }
 
 // testMaaSReadyFalseOnOperandFailure verifies that:
-//  1. When maas-controller has readyReplicas >= 1, ModelsAsAServiceReady=True
+//  1. When maas-controller and ai-gateway-controller have readyReplicas >= 1, ModelsAsAServiceReady=True
 //  2. When maas-controller is scaled to 0, ModelsAsAServiceReady=False
 //  3. After restoring replicas, ModelsAsAServiceReady=True again
-func testMaaSReadyFalseOnOperandFailure(t *testing.T, module *componentsv1alpha1.AIGateway, maasControllerDeploy *appsv1.Deployment) {
+func testMaaSReadyFalseOnOperandFailure(
+	t *testing.T,
+	module *componentsv1alpha1.AIGateway,
+	maasControllerDeploy *appsv1.Deployment,
+	aiGatewayControllerDeploy *appsv1.Deployment,
+) {
 	t.Helper()
 	g := NewWithT(t)
 
 	module.ResourceVersion = ""
 	g.Expect(k8sClient.Create(ctx, module)).To(Succeed())
 
-	// Continuously simulate maas-controller readiness so the test does not
-	// depend on the CI cluster being able to pull the real maas-controller image.
-	// The controller reads deployment.status.readyReplicas — we patch it as
-	// kubelet would once the pod is running.
+	// Continuously simulate MaaS operand readiness (maas-controller and its
+	// ai-gateway-controller sibling) so the test does not depend on the CI
+	// cluster being able to pull the real operand images. The controller reads
+	// deployment.status.readyReplicas — we patch it as kubelet would once the
+	// pod is running.
 	//
 	// Use a raw MergePatch with hardcoded JSON so all three status fields
 	// (replicas, readyReplicas, availableReplicas) are applied atomically.
@@ -605,11 +617,13 @@ func testMaaSReadyFalseOnOperandFailure(t *testing.T, module *componentsv1alpha1
 			case <-patchCtx.Done():
 				return
 			case <-ticker.C:
-				deploy := maasControllerDeploy.DeepCopy()
-				if err := k8sClient.Get(patchCtx, client.ObjectKeyFromObject(deploy), deploy); err != nil {
-					continue
+				for _, operandDeploy := range []*appsv1.Deployment{maasControllerDeploy, aiGatewayControllerDeploy} {
+					deploy := operandDeploy.DeepCopy()
+					if err := k8sClient.Get(patchCtx, client.ObjectKeyFromObject(deploy), deploy); err != nil {
+						continue
+					}
+					_ = k8sClient.Status().Patch(patchCtx, deploy, readyStatusPatch)
 				}
-				_ = k8sClient.Status().Patch(patchCtx, deploy, readyStatusPatch)
 			}
 		}
 	}()
