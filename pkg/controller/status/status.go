@@ -22,4 +22,14 @@ const (
 	SubModuleReadyReason = "Ready"
 	// SubModuleNotReadyReason is set when a sub-module is Managed but not yet available.
 	SubModuleNotReadyReason = "NotReady"
+
+	// Per-tenant health aggregation condition (ADR ODH-ADR-MS-0003 three-state model).
+	// The maas-controller writes the source data to Config/default status; the
+	// ai-gateway-operator mirrors it onto the AIGateway CR via this condition.
+	ConditionTenantsHealthy = "TenantsHealthy"
+
+	TenantsHealthyReason  = "AllTenantsHealthy"
+	TenantsDegradedReason = "TenantsDegraded"
+	TenantsBlockedReason  = "TenantsBlocked"
+	TenantsNoneReason     = "NoTenantsFound"
 )
