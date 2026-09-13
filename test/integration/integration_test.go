@@ -29,22 +29,23 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/spf13/viper"
 
-	appsv1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
-	rbacv1 "k8s.io/api/rbac/v1"
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"math/big"
 
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -73,7 +74,20 @@ const (
 
 	moduleCRDName            = "aigateways.components.platform.opendatahub.io"
 	batchGatewayOperatorName = "llm-d-batch-gateway-operator"
+
+	// operandPauseImage is preloaded on kind nodes and needs no probes, so MaaS
+	// operand Deployments become genuinely Ready without faking status.
+	operandPauseImage                     = "registry.k8s.io/pause:3.9"
+	managedByAnnotation                   = "opendatahub.io/managed"
+	integrationReconcileTriggerAnnotation = "integration.ai-gateway-operator.io/reconcile-trigger"
+	maasConfigName                        = "default"
 )
+
+var maasConfigGVK = schema.GroupVersionKind{
+	Group:   "maas.opendatahub.io",
+	Version: "v1alpha1",
+	Kind:    "Config",
+}
 
 var (
 	ctx             context.Context
@@ -579,6 +593,113 @@ func TestAIGateway_MaaS(t *testing.T) {
 	})
 }
 
+// waitForOperandDeploymentExists blocks until the controller has created the
+// named operand Deployment.
+func waitForOperandDeploymentExists(t *testing.T, deploy *appsv1.Deployment) {
+	t.Helper()
+	g := NewWithT(t)
+
+	g.Eventually(func(g Gomega) {
+		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(deploy), deploy)).To(Succeed())
+	}).WithContext(ctx).WithTimeout(timeout).WithPolling(interval).Should(Succeed())
+}
+
+// stabilizeOperandDeployment swaps operand containers to a pause image and marks
+// the Deployment unmanaged so the in-process reconciler stops overwriting the
+// test's changes. DeploymentsAvailable requires readyReplicas == replicas, so
+// we wait for genuine readiness instead of patching status.
+func stabilizeOperandDeployment(t *testing.T, deploy *appsv1.Deployment) {
+	t.Helper()
+	g := NewWithT(t)
+
+	waitForOperandDeploymentExists(t, deploy)
+
+	g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(deploy), deploy)).To(Succeed())
+	base := deploy.DeepCopy()
+
+	if deploy.Annotations == nil {
+		deploy.Annotations = map[string]string{}
+	}
+	deploy.Annotations[managedByAnnotation] = "false"
+
+	one := int32(1)
+	deploy.Spec.Replicas = &one
+	for i := range deploy.Spec.Template.Spec.Containers {
+		c := &deploy.Spec.Template.Spec.Containers[i]
+		c.Image = operandPauseImage
+		c.ImagePullPolicy = corev1.PullIfNotPresent
+		c.Command = []string{"/pause"}
+		c.Args = nil
+		c.LivenessProbe = nil
+		c.ReadinessProbe = nil
+		c.StartupProbe = nil
+	}
+
+	g.Expect(k8sClient.Patch(ctx, deploy, client.MergeFrom(base))).To(Succeed())
+}
+
+// waitForOperandDeploymentReady waits until DeploymentsAvailable would count the
+// Deployment as ready (readyReplicas == replicas != 0).
+func waitForOperandDeploymentReady(t *testing.T, deploy *appsv1.Deployment) {
+	t.Helper()
+	g := NewWithT(t)
+
+	g.Eventually(k.Get(deploy)).WithContext(ctx).WithTimeout(timeout).WithPolling(interval).Should(
+		jq.Match(`.status.replicas >= 1 and .status.readyReplicas == .status.replicas`),
+	)
+}
+
+// triggerModuleReconcile bumps an annotation on the AIGateway CR. Operand
+// Deployments marked managed=false lose owner references, so their status
+// changes no longer enqueue the module reconciler via the Owned() watch.
+func triggerModuleReconcile(g Gomega, module *componentsv1alpha1.AIGateway) {
+	g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(module), module)).To(Succeed())
+	base := module.DeepCopy()
+	if module.Annotations == nil {
+		module.Annotations = map[string]string{}
+	}
+	module.Annotations[integrationReconcileTriggerAnnotation] = fmt.Sprintf("%d", time.Now().UnixNano())
+	g.Expect(k8sClient.Patch(ctx, module, client.MergeFrom(base))).To(Succeed())
+}
+
+// removeMaaSConfigAnchor deletes cluster-scoped Config/default when present.
+// A brief maas-controller start on amd64 CI can leave Ready=False, which blocks
+// ModelsAsAServiceReady even though this test only exercises deployment readiness.
+func removeMaaSConfigAnchor(g Gomega) {
+	cfg := &unstructured.Unstructured{}
+	cfg.SetGroupVersionKind(maasConfigGVK)
+	cfg.SetName(maasConfigName)
+	err := k8sClient.Delete(ctx, cfg)
+	if err != nil && !k8serr.IsNotFound(err) {
+		g.Expect(err).NotTo(HaveOccurred())
+	}
+}
+
+func moduleObjectForJQ(g Gomega, module *componentsv1alpha1.AIGateway) map[string]interface{} {
+	g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(module), module)).To(Succeed())
+	out := &unstructured.Unstructured{}
+	g.Expect(testScheme.Convert(module, out, nil)).To(Succeed())
+	return out.Object
+}
+
+func stabilizeMaaSOperands(
+	t *testing.T,
+	module *componentsv1alpha1.AIGateway,
+	operands ...*appsv1.Deployment,
+) {
+	t.Helper()
+	g := NewWithT(t)
+
+	for _, deploy := range operands {
+		stabilizeOperandDeployment(t, deploy)
+	}
+	for _, deploy := range operands {
+		waitForOperandDeploymentReady(t, deploy)
+	}
+	removeMaaSConfigAnchor(g)
+	triggerModuleReconcile(g, module)
+}
+
 // testMaaSReadyFalseOnOperandFailure verifies that:
 //  1. When maas-controller and ai-gateway-controller have readyReplicas >= 1, ModelsAsAServiceReady=True
 //  2. When maas-controller is scaled to 0, ModelsAsAServiceReady=False
@@ -595,50 +716,23 @@ func testMaaSReadyFalseOnOperandFailure(
 	module.ResourceVersion = ""
 	g.Expect(k8sClient.Create(ctx, module)).To(Succeed())
 
-	// Continuously simulate MaaS operand readiness (maas-controller and its
-	// ai-gateway-controller sibling) so the test does not depend on the CI
-	// cluster being able to pull the real operand images. The controller reads
-	// deployment.status.readyReplicas — we patch it as kubelet would once the
-	// pod is running.
-	//
-	// Use a raw MergePatch with hardcoded JSON so all three status fields
-	// (replicas, readyReplicas, availableReplicas) are applied atomically.
-	// client.MergeFrom() may omit replicas=1 when the base has replicas=0
-	// (omitempty), which causes OpenShift admission to reject readyReplicas>replicas.
-	readyStatusPatch := client.RawPatch(types.MergePatchType,
-		[]byte(`{"status":{"replicas":1,"readyReplicas":1,"availableReplicas":1}}`))
-	patchCtx, patchCancel := context.WithTimeout(ctx, timeout)
-	defer patchCancel()
-	go func() {
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-patchCtx.Done():
-				return
-			case <-ticker.C:
-				for _, operandDeploy := range []*appsv1.Deployment{maasControllerDeploy, aiGatewayControllerDeploy} {
-					deploy := operandDeploy.DeepCopy()
-					if err := k8sClient.Get(patchCtx, client.ObjectKeyFromObject(deploy), deploy); err != nil {
-						continue
-					}
-					_ = k8sClient.Status().Patch(patchCtx, deploy, readyStatusPatch)
-				}
-			}
-		}
-	}()
+	operands := []*appsv1.Deployment{maasControllerDeploy, aiGatewayControllerDeploy}
+	stabilizeMaaSOperands(t, module, operands...)
 
 	// Both aggregate Ready and the MaaS sub-module condition must be True.
-	// Use `// []` to coerce null to an empty array when conditions haven't been
-	// set yet — jq treats `null | .[]` as an error which stops Eventually retrying.
-	g.Eventually(k.Get(module)).WithContext(ctx).WithTimeout(timeout).WithPolling(interval).Should(And(
-		jq.Match(`(.status.conditions // []) | any(.[]; .type == "Ready" and .status == "True")`),
-		jq.Match(`(.status.conditions // []) | any(.[]; .type == "ModelsAsAServiceReady" and .status == "True")`),
-	))
-
-	// Stop the goroutine before scaling to 0 so it cannot race against the
-	// test body and restore readyReplicas=1 after we zero it out.
-	patchCancel()
+	// Operand Deployments are managed=false, so keep nudging reconcile until the
+	// in-process controller observes genuine deployment readiness.
+	g.Eventually(func(g Gomega) {
+		removeMaaSConfigAnchor(g)
+		triggerModuleReconcile(g, module)
+		obj := moduleObjectForJQ(g, module)
+		ok, err := jq.Match(`(.status.conditions // []) | any(.[]; .type == "Ready" and .status == "True")`).Match(obj)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(ok).To(BeTrue())
+		ok, err = jq.Match(`(.status.conditions // []) | any(.[]; .type == "ModelsAsAServiceReady" and .status == "True")`).Match(obj)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(ok).To(BeTrue())
+	}).WithContext(ctx).WithTimeout(timeout).WithPolling(interval).Should(Succeed())
 
 	// Scale maas-controller to 0 to simulate operand failure.
 	// Scaling avoids a race where the controller re-creates the Deployment
@@ -651,24 +745,23 @@ func testMaaSReadyFalseOnOperandFailure(
 		return p
 	}())).To(Succeed())
 
-	// Zero out status immediately so the controller sees 0 ready replicas.
-	g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(maasControllerDeploy), maasControllerDeploy)).To(Succeed())
-	g.Expect(k8sClient.Status().Patch(ctx, maasControllerDeploy, func() client.Patch {
-		p := client.MergeFrom(maasControllerDeploy.DeepCopy())
-		maasControllerDeploy.Status.ReadyReplicas = 0
-		maasControllerDeploy.Status.AvailableReplicas = 0
-		return p
-	}())).To(Succeed())
-
 	// Both aggregate Ready and the MaaS sub-module condition must be False.
 	// DeploymentsAvailable=False (Error severity) when a managed sub-module is
 	// unavailable drives Ready=False via the reconcile condition pipeline.
-	g.Eventually(k.Get(module)).WithContext(ctx).WithTimeout(timeout).WithPolling(interval).Should(And(
-		jq.Match(`(.status.conditions // []) | any(.[]; .type == "ModelsAsAServiceReady" and .status == "False")`),
-		jq.Match(`(.status.conditions // []) | any(.[]; .type == "Ready" and .status == "False")`),
-	))
+	g.Eventually(func(g Gomega) {
+		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(maasControllerDeploy), maasControllerDeploy)).To(Succeed())
+		g.Expect(maasControllerDeploy.Status.ReadyReplicas).To(BeZero())
+		triggerModuleReconcile(g, module)
+		obj := moduleObjectForJQ(g, module)
+		ok, err := jq.Match(`(.status.conditions // []) | any(.[]; .type == "ModelsAsAServiceReady" and .status == "False")`).Match(obj)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(ok).To(BeTrue())
+		ok, err = jq.Match(`(.status.conditions // []) | any(.[]; .type == "Ready" and .status == "False")`).Match(obj)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(ok).To(BeTrue())
+	}).WithContext(ctx).WithTimeout(timeout).WithPolling(interval).Should(Succeed())
 
-	// Restore to 1 replica and simulate recovery.
+	// Restore to 1 replica and wait for genuine recovery.
 	g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(maasControllerDeploy), maasControllerDeploy)).To(Succeed())
 	one := int32(1)
 	g.Expect(k8sClient.Patch(ctx, maasControllerDeploy, func() client.Patch {
@@ -677,15 +770,20 @@ func testMaaSReadyFalseOnOperandFailure(
 		return p
 	}())).To(Succeed())
 
-	g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(maasControllerDeploy), maasControllerDeploy)).To(Succeed())
-	g.Expect(k8sClient.Status().Patch(ctx, maasControllerDeploy,
-		client.RawPatch(types.MergePatchType,
-			[]byte(`{"status":{"replicas":1,"readyReplicas":1,"availableReplicas":1}}`)))).To(Succeed())
-
-	g.Eventually(k.Get(module)).WithContext(ctx).WithTimeout(timeout).WithPolling(interval).Should(And(
-		jq.Match(`(.status.conditions // []) | any(.[]; .type == "Ready" and .status == "True")`),
-		jq.Match(`(.status.conditions // []) | any(.[]; .type == "ModelsAsAServiceReady" and .status == "True")`),
-	))
+	g.Eventually(func(g Gomega) {
+		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(maasControllerDeploy), maasControllerDeploy)).To(Succeed())
+		g.Expect(maasControllerDeploy.Status.Replicas).To(BeNumerically(">=", 1))
+		g.Expect(maasControllerDeploy.Status.ReadyReplicas).To(Equal(maasControllerDeploy.Status.Replicas))
+		removeMaaSConfigAnchor(g)
+		triggerModuleReconcile(g, module)
+		obj := moduleObjectForJQ(g, module)
+		ok, err := jq.Match(`(.status.conditions // []) | any(.[]; .type == "Ready" and .status == "True")`).Match(obj)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(ok).To(BeTrue())
+		ok, err = jq.Match(`(.status.conditions // []) | any(.[]; .type == "ModelsAsAServiceReady" and .status == "True")`).Match(obj)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(ok).To(BeTrue())
+	}).WithContext(ctx).WithTimeout(timeout).WithPolling(interval).Should(Succeed())
 }
 
 // Labels used to identify integration-test-owned CRD stubs so teardown never
