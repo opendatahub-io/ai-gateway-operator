@@ -6,5 +6,5 @@ resources:
 
 images:
   - name: ai-gateway-controller
-    newName: quay.io/opendatahub/ai-gateway-controller
+    newName: quay.io/opendatahub/odh-ai-gateway-controller
     newTag: odh-stable
