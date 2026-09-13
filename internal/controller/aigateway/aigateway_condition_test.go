@@ -181,15 +181,19 @@ func TestMaasConfigReady_NilClient(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // TestReportSubModuleStatus_MaaSManaged_DeploymentsAvailable verifies
-// ModelsAsAServiceReady=True when the Deployment is ready and Config doesn't
-// exist yet (bootstrap in progress — don't block).
+// ModelsAsAServiceReady=True when modelsAsAService is Managed, both the
+// maas-controller and ai-gateway-controller Deployments are ready, and Config
+// doesn't exist yet (bootstrap in progress — don't block).
 func TestReportSubModuleStatus_MaaSManaged_DeploymentsAvailable(t *testing.T) {
 	g := NewWithT(t)
 
 	m := newTestModuleWithNamespace(t, "opendatahub")
 	obj := newTestAIGateway()
 	obj.Spec.ModelsAsAService.ManagementState = managedState
-	rr := newSubModuleRR(t, obj, readyDeploy(maasControllerDeploymentName, "opendatahub"))
+	rr := newSubModuleRR(t, obj,
+		readyDeploy(maasControllerDeploymentName, "opendatahub"),
+		readyDeploy(aiGatewayControllerDeploymentName, "opendatahub"),
+	)
 
 	g.Expect(m.reportSubModuleStatus(context.Background(), rr)).To(Succeed())
 
@@ -208,7 +212,11 @@ func TestReportSubModuleStatus_MaaSManaged_ConfigReadyTrue(t *testing.T) {
 	obj := newTestAIGateway()
 	obj.Spec.ModelsAsAService.ManagementState = managedState
 	cfg := maasConfigObject("True", "")
-	rr := newSubModuleRR(t, obj, readyDeploy(maasControllerDeploymentName, "opendatahub"), cfg)
+	rr := newSubModuleRR(t, obj,
+		readyDeploy(maasControllerDeploymentName, "opendatahub"),
+		readyDeploy(aiGatewayControllerDeploymentName, "opendatahub"),
+		cfg,
+	)
 
 	g.Expect(m.reportSubModuleStatus(context.Background(), rr)).To(Succeed())
 
@@ -228,7 +236,11 @@ func TestReportSubModuleStatus_MaaSManaged_ConfigReadyFalse(t *testing.T) {
 	obj := newTestAIGateway()
 	obj.Spec.ModelsAsAService.ManagementState = managedState
 	cfg := maasConfigObject("False", "gateway openshift-ingress/maas-default-gateway not found")
-	rr := newSubModuleRR(t, obj, readyDeploy(maasControllerDeploymentName, "opendatahub"), cfg)
+	rr := newSubModuleRR(t, obj,
+		readyDeploy(maasControllerDeploymentName, "opendatahub"),
+		readyDeploy(aiGatewayControllerDeploymentName, "opendatahub"),
+		cfg,
+	)
 
 	g.Expect(m.reportSubModuleStatus(context.Background(), rr)).To(Succeed())
 
@@ -249,6 +261,27 @@ func TestReportSubModuleStatus_MaaSManaged_DeploymentsNotAvailable(t *testing.T)
 	obj.Spec.ModelsAsAService.ManagementState = managedState
 	// No Deployment object in the fake client → IsNotFound → (false, nil)
 	rr := newSubModuleRR(t, obj)
+
+	g.Expect(m.reportSubModuleStatus(context.Background(), rr)).To(Succeed())
+
+	cond := rr.Conditions.GetCondition(status.ConditionModelsAsAServiceReady)
+	g.Expect(cond).NotTo(BeNil())
+	g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+	g.Expect(cond.Reason).To(Equal(status.SubModuleNotReadyReason))
+}
+
+// TestReportSubModuleStatus_MaaSManaged_AIGatewayControllerNotAvailable verifies
+// ModelsAsAServiceReady=False when maas-controller is ready but its
+// ai-gateway-controller sibling is not — the two are AND'd together since
+// they're bound to the same ManagementState toggle.
+func TestReportSubModuleStatus_MaaSManaged_AIGatewayControllerNotAvailable(t *testing.T) {
+	g := NewWithT(t)
+
+	m := newTestModuleWithNamespace(t, "opendatahub")
+	obj := newTestAIGateway()
+	obj.Spec.ModelsAsAService.ManagementState = managedState
+	// maas-controller ready, ai-gateway-controller Deployment absent.
+	rr := newSubModuleRR(t, obj, readyDeploy(maasControllerDeploymentName, "opendatahub"))
 
 	g.Expect(m.reportSubModuleStatus(context.Background(), rr)).To(Succeed())
 
@@ -298,8 +331,8 @@ func TestReportSubModuleStatus_MaaSRemoved(t *testing.T) {
 }
 
 // TestReportSubModuleStatus_BothManaged_IndependentConditions verifies that conditions
-// are independent: if only maas-controller is ready and batch-gateway is not,
-// ModelsAsAServiceReady=True and BatchGatewayReady=False simultaneously.
+// are independent: if maas-controller/ai-gateway-controller are ready and batch-gateway
+// is not, ModelsAsAServiceReady=True and BatchGatewayReady=False simultaneously.
 func TestReportSubModuleStatus_BothManaged(t *testing.T) {
 	g := NewWithT(t)
 
@@ -307,8 +340,11 @@ func TestReportSubModuleStatus_BothManaged(t *testing.T) {
 	obj := newTestAIGateway()
 	obj.Spec.ModelsAsAService.ManagementState = managedState
 	obj.Spec.BatchGateway.ManagementState = managedState
-	// Only maas-controller is ready; batch-gateway Deployment is absent
-	rr := newSubModuleRR(t, obj, readyDeploy(maasControllerDeploymentName, "opendatahub"))
+	// maas-controller and its ai-gateway-controller sibling are ready; batch-gateway Deployment is absent
+	rr := newSubModuleRR(t, obj,
+		readyDeploy(maasControllerDeploymentName, "opendatahub"),
+		readyDeploy(aiGatewayControllerDeploymentName, "opendatahub"),
+	)
 
 	g.Expect(m.reportSubModuleStatus(context.Background(), rr)).To(Succeed())
 
