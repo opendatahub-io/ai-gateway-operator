@@ -281,9 +281,18 @@ func TestModelsAsAService(t *testing.T) {
 			Namespace: operatorNamespace,
 		},
 	}
+	aiGatewayControllerDeploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "ai-gateway-controller",
+			Namespace: operatorNamespace,
+		},
+	}
 
 	t.Run("should deploy maas-controller", func(t *testing.T) {
 		eventuallyDeploymentReady(t, maasControllerDeploy)
+	})
+	t.Run("should deploy ai-gateway-controller", func(t *testing.T) {
+		eventuallyDeploymentReady(t, aiGatewayControllerDeploy)
 	})
 	t.Run("should create MaaS CRDs", func(t *testing.T) {
 		testMaaSCRDsCreated(t)
@@ -320,7 +329,7 @@ func TestModelsAsAService(t *testing.T) {
 	})
 	// Runs last: temporarily disables MaaS and restores it via t.Cleanup.
 	t.Run("should remove operands when MaaS ManagementState is set to Removed", func(t *testing.T) {
-		testMaaSDisabledRemovesOperands(t, maasControllerDeploy)
+		testMaaSDisabledRemovesOperands(t, maasControllerDeploy, aiGatewayControllerDeploy)
 	})
 }
 
@@ -411,7 +420,9 @@ func testMaaSControllerOwnerReferences(t *testing.T, maasControllerDeploy *appsv
 // testMaaSStatusConditions verifies that the AIGateway CR reports the correct conditions
 // after a successful reconcile, satisfying the platform contract's trust requirements:
 //   - aggregate Ready=True (platform reads this to compute ModulesReady on DSC)
-//   - ModelsAsAServiceReady=True (sub-module condition read by Dashboard and consumers)
+//   - DeploymentsAvailable=True once maas-controller and ai-gateway-controller are up
+//   - ModelsAsAServiceReady reflects the MaaS Config gate (True when bootstrap completed;
+//     False/NotReady on kind when AITenant bootstrap is still pending — see comment above)
 //   - observedGeneration == metadata.generation (platform uses this to detect stale status)
 func testMaaSStatusConditions(t *testing.T) {
 	t.Helper()
@@ -422,7 +433,8 @@ func testMaaSStatusConditions(t *testing.T) {
 	}
 	g.Eventually(k.Get(aiGateway)).WithContext(ctx).WithTimeout(timeout).WithPolling(interval).Should(And(
 		jq.Match(`.status.conditions | any(.[]; .type == "Ready" and .status == "True")`),
-		jq.Match(`.status.conditions | any(.[]; .type == "ModelsAsAServiceReady" and .status == "True")`),
+		jq.Match(`.status.conditions | any(.[]; .type == "DeploymentsAvailable" and .status == "True")`),
+		jq.Match(`(.status.conditions // []) | any(.[]; .type == "ModelsAsAServiceReady" and (.status == "True" or (.status == "False" and .reason == "NotReady")))`),
 		jq.Match(`.status.observedGeneration == .metadata.generation`),
 	))
 }
@@ -533,7 +545,8 @@ func testMaaSValidatingWebhookConfigExists(t *testing.T) {
 }
 
 // testMaaSDisabledRemovesOperands verifies that setting ModelsAsAService.ManagementState
-// to Removed causes AGO to remove the maas-controller Deployment and all MaaS operands.
+// to Removed causes AGO to remove the maas-controller and ai-gateway-controller
+// Deployments and all MaaS operands.
 //
 // The cleanup contract is tested end-to-end: AGO sends the teardown-requested signal to
 // maas-controller, which self-tears-down and echoes teardown-completed, at which point
@@ -541,7 +554,7 @@ func testMaaSValidatingWebhookConfigExists(t *testing.T) {
 // loop (real OpenShift with required CRDs), this happens automatically. On minimal
 // clusters (kind with stub CRDs only), the test waits up to setupTimeout for the same
 // outcome regardless of mechanism.
-func testMaaSDisabledRemovesOperands(t *testing.T, maasControllerDeploy *appsv1.Deployment) {
+func testMaaSDisabledRemovesOperands(t *testing.T, maasControllerDeploy, aiGatewayControllerDeploy *appsv1.Deployment) {
 	t.Helper()
 	g := NewWithT(t)
 
@@ -560,15 +573,17 @@ func testMaaSDisabledRemovesOperands(t *testing.T, maasControllerDeploy *appsv1.
 			t.Errorf("cleanup: failed to restore MaaS ManagementState to Managed: %v", err)
 			return
 		}
-		t.Logf("cleanup: waiting for maas-controller Deployment to be recreated")
-		if err := pollFor(ctx, "maas-controller ready after cleanup", setupTimeout, func() (bool, error) {
-			d := &appsv1.Deployment{}
-			if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(maasControllerDeploy), d); err != nil {
-				return false, nil
+		t.Logf("cleanup: waiting for MaaS operand Deployments to be recreated")
+		for _, deploy := range []*appsv1.Deployment{maasControllerDeploy, aiGatewayControllerDeploy} {
+			if err := pollFor(ctx, deploy.Name+" ready after cleanup", setupTimeout, func() (bool, error) {
+				d := &appsv1.Deployment{}
+				if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(deploy), d); err != nil {
+					return false, nil
+				}
+				return d.Status.ReadyReplicas >= 1, nil
+			}); err != nil {
+				t.Errorf("cleanup: %s did not become ready: %v", deploy.Name, err)
 			}
-			return d.Status.ReadyReplicas >= 1, nil
-		}); err != nil {
-			t.Errorf("cleanup: maas-controller did not become ready: %v", err)
 		}
 	})
 
@@ -592,6 +607,10 @@ func testMaaSDisabledRemovesOperands(t *testing.T, maasControllerDeploy *appsv1.
 		deploy := &appsv1.Deployment{}
 		if !k8serr.IsNotFound(k8sClient.Get(ctx, client.ObjectKeyFromObject(maasControllerDeploy), deploy)) {
 			remaining = append(remaining, "maas-controller Deployment")
+		}
+		agcDeploy := &appsv1.Deployment{}
+		if !k8serr.IsNotFound(k8sClient.Get(ctx, client.ObjectKeyFromObject(aiGatewayControllerDeploy), agcDeploy)) {
+			remaining = append(remaining, "ai-gateway-controller Deployment")
 		}
 		svc := &corev1.Service{}
 		if !k8serr.IsNotFound(k8sClient.Get(ctx, client.ObjectKey{Name: "maas-controller-webhook-service", Namespace: operatorNamespace}, svc)) {
