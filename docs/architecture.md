@@ -66,7 +66,7 @@ Each sub-component operator (e.g. batch-gateway-operator) lives in its own midst
 
 `make get-manifests` (`hack/scripts/get-manifests.sh`) fetches each sub-component's manifests from its repo at a pinned commit SHA and copies them into `config/manifests/<sub-component>/` (e.g. `config/manifests/batchgateway/`).
 - The fetched files must be committed to git so that PR review can catch manifest changes and container builds remain reproducible without network access.
-- At build time, `Containerfile` copies these manifests into the container image at `/opt/manifests/`; an init container copies them into a writable emptyDir at runtime (see `config/manager/manager.yaml`).
+- At build time, `Dockerfile` copies these manifests into the container image at `/manifests/`; the manager reads them from this path at runtime (see `config/manager/manager.yaml`).
 - To upgrade a sub-component, update the SHA in `get-manifests.sh`, re-run `make get-manifests`, and commit the result.
 
 ### 2.3 ai-gateway-operator generates its own deploy manifests
