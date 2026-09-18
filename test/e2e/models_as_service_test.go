@@ -117,10 +117,17 @@ func ensureOptionalCRDStubs(ctx context.Context, k8sClient client.Client) error 
 		// AuthPolicy: kuadrant.io/v1 (confirmed from crash log).
 		minimalCRD("authpolicies.kuadrant.io", "kuadrant.io", "v1",
 			"AuthPolicy", "authpolicies", "authpolicy", apiextensionsv1.NamespaceScoped),
-		minimalCRD("tokenratelimitpolicies.kuadrant.io", "kuadrant.io", "v1beta3",
+		minimalCRD("tokenratelimitpolicies.kuadrant.io", "kuadrant.io", "v1alpha1",
 			"TokenRateLimitPolicy", "tokenratelimitpolicies", "tokenratelimitpolicy", apiextensionsv1.NamespaceScoped),
-		minimalCRD("llminferenceservices.serving.kserve.io", "serving.kserve.io", "v1alpha1",
+		minimalCRD("llminferenceservices.serving.kserve.io", "serving.kserve.io", "v1alpha2",
 			"LLMInferenceService", "llminferenceservices", "llminferenceservice", apiextensionsv1.NamespaceScoped),
+		// Gateway API CRDs — maas-controller watches HTTPRoute and Gateway resources.
+		// The gateway.networking.k8s.io group is a protected k8s API group and
+		// requires the api-approved.kubernetes.io annotation to be accepted.
+		withApprovalAnnotation(minimalCRD("httproutes.gateway.networking.k8s.io", "gateway.networking.k8s.io", "v1",
+			"HTTPRoute", "httproutes", "httproute", apiextensionsv1.NamespaceScoped)),
+		withApprovalAnnotation(minimalCRD("gateways.gateway.networking.k8s.io", "gateway.networking.k8s.io", "v1",
+			"Gateway", "gateways", "gateway", apiextensionsv1.NamespaceScoped)),
 	}
 	return applyCRDs(ctx, k8sClient, crds)
 }
@@ -164,6 +171,16 @@ func minimalCRD(name, group, version, kind, plural, singular string, scope apiex
 			},
 		},
 	}
+}
+
+// withApprovalAnnotation adds the api-approved.kubernetes.io annotation required
+// by protected k8s API groups (e.g. gateway.networking.k8s.io).
+func withApprovalAnnotation(crd apiextensionsv1.CustomResourceDefinition) apiextensionsv1.CustomResourceDefinition {
+	if crd.Annotations == nil {
+		crd.Annotations = make(map[string]string)
+	}
+	crd.Annotations["api-approved.kubernetes.io"] = "https://github.com/kubernetes-sigs/gateway-api/pull/891"
+	return crd
 }
 
 // applyCRDs creates each CRD if it does not already exist, then waits
@@ -642,6 +659,8 @@ func maasCleanup(ctx context.Context, k8sClient client.Client, ns string) {
 		"authpolicies.kuadrant.io",
 		"tokenratelimitpolicies.kuadrant.io",
 		"llminferenceservices.serving.kserve.io",
+		"httproutes.gateway.networking.k8s.io",
+		"gateways.gateway.networking.k8s.io",
 	}
 	for _, name := range stubCRDNames {
 		crd := &apiextensionsv1.CustomResourceDefinition{}
