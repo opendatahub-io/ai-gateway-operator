@@ -43,6 +43,7 @@ rules:
   - get
   - list
   - patch
+  - update
   - watch
 - apiGroups:
   - ""
@@ -60,6 +61,7 @@ rules:
   - get
   - list
   - patch
+  - update
   - watch
 - apiGroups:
   - ""
@@ -127,6 +129,7 @@ rules:
   - get
   - list
   - patch
+  - update
   - watch
 - apiGroups:
   - batch
@@ -146,6 +149,7 @@ rules:
   - get
   - list
   - patch
+  - update
   - watch
 - apiGroups:
   - discovery.k8s.io
@@ -172,6 +176,7 @@ rules:
   - get
   - list
   - patch
+  - update
   - watch
 - apiGroups:
   - gateway.networking.k8s.io
@@ -249,6 +254,7 @@ rules:
   - get
   - list
   - patch
+  - update
   - watch
 - apiGroups:
   - loki.grafana.com
@@ -330,6 +336,7 @@ rules:
   - get
   - list
   - patch
+  - update
   - watch
 - apiGroups:
   - networking.istio.io
@@ -353,6 +360,7 @@ rules:
   - get
   - list
   - patch
+  - update
   - watch
 - apiGroups:
   - networking.istio.io
@@ -375,6 +383,7 @@ rules:
   - get
   - list
   - patch
+  - update
   - watch
 - apiGroups:
   - opentelemetry.io
@@ -386,6 +395,7 @@ rules:
   - get
   - list
   - patch
+  - update
   - watch
 - apiGroups:
   - operator.authorino.kuadrant.io
@@ -406,6 +416,7 @@ rules:
   - get
   - list
   - patch
+  - update
   - watch
 - apiGroups:
   - rbac.authorization.k8s.io
@@ -419,6 +430,7 @@ rules:
   - get
   - list
   - patch
+  - update
   - watch
 - apiGroups:
   - rbac.authorization.k8s.io
@@ -458,4 +470,5 @@ rules:
   - get
   - list
   - patch
+  - update
   - watch
