@@ -21,9 +21,12 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apiextensions-apiserver/pkg/apihelpers"
+	extv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -110,6 +113,17 @@ var aiGatewayControllerImageParamMap = map[string]string{
 	"praxis-extproc-image":        "RELATED_IMAGE_ODH_PRAXIS_EXTPROC_IMAGE",
 }
 
+// aiGridCRDSuffix is the API group suffix shared by all AI Grid CRDs.
+const aiGridCRDSuffix = ".grid.praxis-proxy.io"
+
+// aiGridCRDNames are the CRDs vendored in config/manifests/aigrid.
+var aiGridCRDNames = []string{
+	"agenttoolproviders" + aiGridCRDSuffix,
+	"gridnetworks" + aiGridCRDSuffix,
+	"gridsites" + aiGridCRDSuffix,
+	"inferenceproviders" + aiGridCRDSuffix,
+}
+
 // Module holds process-lifetime state for the aigateway controller.
 type Module struct {
 	cfg                             *moduleconfig.Config
@@ -117,6 +131,7 @@ type Module struct {
 	batchGatewayManifestInfo        odhtypes.ManifestInfo
 	maasManifestInfo                odhtypes.ManifestInfo
 	aiGatewayControllerManifestInfo odhtypes.ManifestInfo
+	aiGridManifestInfo              odhtypes.ManifestInfo
 }
 
 // NewModule creates a Module with one-shot computed state.
@@ -161,12 +176,19 @@ func NewModule(cfg *moduleconfig.Config) (*Module, error) {
 		return nil, fmt.Errorf("failed to update images on path %s: %w", aiGatewayControllerMI, err)
 	}
 
+	// CRDs only: no images, no params.
+	aiGridMI := odhtypes.ManifestInfo{
+		Path:       cfg.ManifestsPath,
+		ContextDir: "aigrid",
+	}
+
 	return &Module{
 		cfg:                             cfg,
 		version:                         v,
 		batchGatewayManifestInfo:        batchMI,
 		maasManifestInfo:                maasMI,
 		aiGatewayControllerManifestInfo: aiGatewayControllerMI,
+		aiGridManifestInfo:              aiGridMI,
 	}, nil
 }
 
@@ -188,6 +210,10 @@ func (m *Module) initialize(ctx context.Context, rr *odhtypes.ReconciliationRequ
 		); err != nil {
 			return fmt.Errorf("failed to update batch-gateway params.env: %w", err)
 		}
+	}
+
+	if obj.Spec.AIGrid.ManagementState == managedState {
+		rr.Manifests = append(rr.Manifests, m.aiGridManifestInfo)
 	}
 
 	keepMaaSInstalled := obj.Spec.ModelsAsAService.ManagementState == managedState
@@ -243,6 +269,7 @@ func (m *Module) initialize(ctx context.Context, rr *odhtypes.ReconciliationRequ
 }
 
 // anySubModuleManaged reports whether at least one AIGateway sub-module is set to Managed.
+// aiGrid is excluded: it has no Deployment, so it must not block the 0/0 downgrade.
 func anySubModuleManaged(obj *componentApi.AIGateway) bool {
 	return obj.Spec.BatchGateway.ManagementState == managedState ||
 		obj.Spec.ModelsAsAService.ManagementState == managedState
@@ -389,6 +416,26 @@ func tenantsHealthFromConfig(ctx context.Context, c client.Client) (reason, msg 
 	return "", "", true, nil
 }
 
+// crdsEstablished reports whether every named CRD exists and is Established.
+func crdsEstablished(ctx context.Context, c client.Client, names []string) (bool, error) {
+	if c == nil {
+		return false, nil
+	}
+	for _, name := range names {
+		crd := &extv1.CustomResourceDefinition{}
+		if err := c.Get(ctx, types.NamespacedName{Name: name}, crd); err != nil {
+			if k8serr.IsNotFound(err) {
+				return false, nil
+			}
+			return false, err
+		}
+		if !apihelpers.IsCRDConditionTrue(crd, extv1.Established) {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
 // reportSubModuleStatus sets per-sub-module Ready conditions on the AIGateway CR.
 // Each condition is derived from its specific Deployment so that the conditions
 // are independent — one sub-module failing does not affect another's condition.
@@ -517,6 +564,34 @@ func (m *Module) reportSubModuleStatus(ctx context.Context, rr *odhtypes.Reconci
 			conditions.WithSeverity(common.ConditionSeverityInfo),
 			conditions.WithReason(status.SubModuleRemovedReason),
 			conditions.WithMessage("batchGateway ManagementState is Removed"),
+		)
+	}
+
+	// AIGridReady — reflects whether the AI Grid CRDs are Established.
+	if obj.Spec.AIGrid.ManagementState == managedState {
+		ready, err := crdsEstablished(ctx, rr.Client, aiGridCRDNames)
+		if err != nil {
+			return fmt.Errorf("checking AI Grid CRDs: %w", err)
+		}
+		if ready {
+			rr.Conditions.MarkTrue(
+				status.ConditionAIGridReady,
+				conditions.WithReason(status.SubModuleReadyReason),
+				conditions.WithMessage("aiGrid is Managed and CRDs are established"),
+			)
+		} else {
+			rr.Conditions.MarkFalse(
+				status.ConditionAIGridReady,
+				conditions.WithReason(status.SubModuleNotReadyReason),
+				conditions.WithMessage("aiGrid is Managed but CRDs are not yet established"),
+			)
+		}
+	} else {
+		rr.Conditions.MarkFalse(
+			status.ConditionAIGridReady,
+			conditions.WithSeverity(common.ConditionSeverityInfo),
+			conditions.WithReason(status.SubModuleRemovedReason),
+			conditions.WithMessage("aiGrid ManagementState is Removed; CRDs are kept"),
 		)
 	}
 
@@ -673,6 +748,12 @@ func withPreservedPlatformRelease(
 
 		return err
 	}
+}
+
+// aiGridCRDPredicate matches AI Grid CRDs. CRDs carry no owner refs, so Owns
+// alone never requeues on their Established status change.
+func aiGridCRDPredicate(o client.Object) bool {
+	return strings.HasSuffix(o.GetName(), aiGridCRDSuffix)
 }
 
 // platformConfigMapPredicate returns a predicate function that matches only the

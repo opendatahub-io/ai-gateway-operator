@@ -1051,3 +1051,48 @@ func TestPlatformConfigMapPredicate(t *testing.T) {
 		})
 	}
 }
+
+func TestAIGridCRDPredicate(t *testing.T) {
+	tests := []struct {
+		name     string
+		crdName  string
+		expected bool
+	}{
+		{"grid CRD", "gridsites" + aiGridCRDSuffix, true},
+		{"other CRD", "llmbatchgateways.batch.llm-d.ai", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
+			obj := &extv1.CustomResourceDefinition{ObjectMeta: metav1.ObjectMeta{Name: tt.crdName}}
+			g.Expect(aiGridCRDPredicate(obj)).To(Equal(tt.expected))
+		})
+	}
+}
+
+func TestInitializeManagedAIGrid(t *testing.T) {
+	g := NewWithT(t)
+
+	m := newTestModule(t)
+	obj := newTestAIGateway()
+	obj.Spec.AIGrid.ManagementState = managedState
+	rr := newTestRR(obj)
+
+	g.Expect(m.initialize(context.Background(), rr)).To(Succeed())
+	g.Expect(rr.Manifests).To(HaveLen(1))
+	g.Expect(rr.Manifests[0].ContextDir).To(Equal("aigrid"))
+	g.Expect(rr.Manifests[0].String()).To(Equal("/manifests/aigrid"))
+}
+
+func TestInitializeRemovedAIGrid(t *testing.T) {
+	g := NewWithT(t)
+
+	m := newTestModule(t)
+	obj := newTestAIGateway()
+	obj.Spec.AIGrid.ManagementState = removedState
+	rr := newTestRR(obj)
+
+	g.Expect(m.initialize(context.Background(), rr)).To(Succeed())
+	g.Expect(rr.Manifests).To(BeEmpty())
+}
