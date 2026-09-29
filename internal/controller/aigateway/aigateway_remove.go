@@ -3,6 +3,7 @@ package aigateway
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -148,6 +149,11 @@ func (m *Module) maasTeardownCompleted(ctx context.Context, cli client.Client) (
 // maas-controller Deployment's own annotation - so the default predicate alone would
 // never consider either bundle's resources eligible for collection.
 func (m *Module) maasAwareGCPredicate(rr *odhtypes.ReconciliationRequest, obj unstructured.Unstructured) (bool, error) {
+	// Never GC grid CRDs: deleting one cascades to every grid custom resource.
+	if obj.GroupVersionKind() == gvk.CustomResourceDefinition && strings.HasSuffix(obj.GetName(), aiGridCRDSuffix) {
+		return false, nil
+	}
+
 	deletable, err := gc.DefaultObjectPredicate(rr, obj)
 	if err != nil || deletable {
 		return deletable, err

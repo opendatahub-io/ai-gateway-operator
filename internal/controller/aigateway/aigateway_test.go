@@ -31,6 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -42,6 +43,7 @@ import (
 	"github.com/opendatahub-io/ai-gateway-operator/pkg/controller/status"
 	"github.com/opendatahub-io/ai-gateway-operator/pkg/version"
 	"github.com/opendatahub-io/opendatahub-operator/v2/pkg/cluster"
+	"github.com/opendatahub-io/opendatahub-operator/v2/pkg/cluster/gvk"
 	"github.com/opendatahub-io/opendatahub-operator/v2/pkg/controller/conditions"
 	odhtypes "github.com/opendatahub-io/opendatahub-operator/v2/pkg/controller/types"
 	odhAnnotations "github.com/opendatahub-io/opendatahub-operator/v2/pkg/metadata/annotations"
@@ -1095,4 +1097,37 @@ func TestInitializeRemovedAIGrid(t *testing.T) {
 
 	g.Expect(m.initialize(context.Background(), rr)).To(Succeed())
 	g.Expect(rr.Manifests).To(BeEmpty())
+}
+
+func TestMaasAwareGCPredicateKeepsStaleAIGridCRD(t *testing.T) {
+	g := NewWithT(t)
+
+	m := newTestModule(t)
+	obj := newTestAIGateway()
+	obj.UID = "test-uid"
+	obj.Generation = 3
+	rr := newTestRR(obj)
+	rr.Client = fake.NewClientBuilder().WithScheme(newTestScheme(t)).Build()
+
+	// Generation annotation behind the instance's, so the default predicate says stale.
+	stale := func(k schema.GroupVersionKind, name string) unstructured.Unstructured {
+		u := unstructured.Unstructured{}
+		u.SetGroupVersionKind(k)
+		u.SetName(name)
+		u.SetAnnotations(map[string]string{
+			odhAnnotations.PlatformVersion:    rr.Release.Version.String(),
+			odhAnnotations.PlatformType:       string(rr.Release.Name),
+			odhAnnotations.InstanceGeneration: "2",
+			odhAnnotations.InstanceUID:        string(obj.GetUID()),
+		})
+		return u
+	}
+
+	deletable, err := m.maasAwareGCPredicate(rr, stale(gvk.CustomResourceDefinition, "gridsites"+aiGridCRDSuffix))
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(deletable).To(BeFalse())
+
+	deletable, err = m.maasAwareGCPredicate(rr, stale(gvk.ConfigMap, "some-config"))
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(deletable).To(BeTrue())
 }
