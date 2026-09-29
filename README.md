@@ -12,6 +12,7 @@ A Kubernetes operator that manages AI Gateway components for [Open Data Hub](htt
 
 - **[Enabling Models as a Service](docs/enabling-models-as-a-service.md)** - Deploy and manage MaaS for multi-tenant model inference
 - **[Architecture](docs/architecture.md)** - How ai-gateway-operator manages sub-components
+- **[Contributing](CONTRIBUTING.md)** - Development setup, CI, and test ownership boundaries (AIGO / AIGC / MaaS)
 
 ## Updating Component Manifests
 
