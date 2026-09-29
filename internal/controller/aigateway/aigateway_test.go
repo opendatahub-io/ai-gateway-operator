@@ -19,6 +19,7 @@ package aigateway
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"testing"
 
@@ -46,6 +47,7 @@ import (
 	"github.com/opendatahub-io/opendatahub-operator/v2/pkg/cluster/gvk"
 	"github.com/opendatahub-io/opendatahub-operator/v2/pkg/controller/conditions"
 	odhtypes "github.com/opendatahub-io/opendatahub-operator/v2/pkg/controller/types"
+	"github.com/opendatahub-io/opendatahub-operator/v2/pkg/manifests/kustomize"
 	odhAnnotations "github.com/opendatahub-io/opendatahub-operator/v2/pkg/metadata/annotations"
 )
 
@@ -1130,4 +1132,21 @@ func TestMaasAwareGCPredicateKeepsStaleAIGridCRD(t *testing.T) {
 	deletable, err = m.maasAwareGCPredicate(rr, stale(gvk.ConfigMap, "some-config"))
 	g.Expect(err).NotTo(HaveOccurred())
 	g.Expect(deletable).To(BeTrue())
+}
+
+// TestAIGridManifestsRenderOnlyCRDs renders the vendored aigrid bundle the way
+// the kustomize action does and expects exactly the four grid CRDs.
+func TestAIGridManifestsRenderOnlyCRDs(t *testing.T) {
+	g := NewWithT(t)
+
+	mi := odhtypes.ManifestInfo{Path: filepath.Join("..", "..", "..", "config", "manifests"), ContextDir: "aigrid"}
+	objs, err := kustomize.NewEngine().Render(mi.String(), kustomize.WithNamespace("test-ns"))
+	g.Expect(err).NotTo(HaveOccurred())
+
+	names := make([]string, 0, len(objs))
+	for _, o := range objs {
+		g.Expect(o.GroupVersionKind()).To(Equal(gvk.CustomResourceDefinition))
+		names = append(names, o.GetName())
+	}
+	g.Expect(names).To(ConsistOf(aiGridCRDNames))
 }
