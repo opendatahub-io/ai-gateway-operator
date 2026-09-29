@@ -35,6 +35,8 @@ type AIGatewaySpec struct {
 	BatchGateway BatchGatewayComponent `json:"batchGateway,omitempty"`
 	// ModelsAsAService controls the Models as a Service sub-component.
 	ModelsAsAService ModelsAsAServiceComponent `json:"modelsAsAService,omitempty"`
+	// AIGrid controls the AI Grid sub-component (CRDs only; kept on Removed).
+	AIGrid AIGridComponent `json:"aiGrid,omitempty"`
 }
 
 // BatchGatewayComponent configures the batch-gateway operator lifecycle.
@@ -48,6 +50,15 @@ type BatchGatewayComponent struct {
 // ModelsAsAServiceComponent configures the maas-controller lifecycle.
 type ModelsAsAServiceComponent struct {
 	// ManagementState controls whether the maas-controller is deployed.
+	// +kubebuilder:validation:Enum=Managed;Removed
+	// +kubebuilder:default=Removed
+	ManagementState string `json:"managementState,omitempty"`
+}
+
+// AIGridComponent configures the AI Grid CRD lifecycle.
+type AIGridComponent struct {
+	// ManagementState controls whether the AI Grid CRDs are installed.
+	// Removed stops reconciling them but does not delete them.
 	// +kubebuilder:validation:Enum=Managed;Removed
 	// +kubebuilder:default=Removed
 	ManagementState string `json:"managementState,omitempty"`
