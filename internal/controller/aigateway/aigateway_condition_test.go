@@ -22,6 +22,7 @@ import (
 
 	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
+	extv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -578,4 +579,92 @@ func TestOverWriteConditionWhenManaged(t *testing.T) {
 	g.Expect(da.Severity).To(Equal(common.ConditionSeverityError))
 
 	g.Expect(rr.Conditions.GetCondition(readyCondition).Status).To(Equal(metav1.ConditionFalse))
+}
+
+func aiGridCRD(name string, established bool) *extv1.CustomResourceDefinition {
+	crd := &extv1.CustomResourceDefinition{ObjectMeta: metav1.ObjectMeta{Name: name}}
+	if established {
+		crd.Status.Conditions = []extv1.CustomResourceDefinitionCondition{
+			{Type: extv1.Established, Status: extv1.ConditionTrue},
+		}
+	}
+	return crd
+}
+
+func TestReportSubModuleStatus_AIGridManaged(t *testing.T) {
+	allEstablished := func(skip int) []client.Object {
+		objs := make([]client.Object, 0, len(aiGridCRDNames))
+		for i, name := range aiGridCRDNames {
+			objs = append(objs, aiGridCRD(name, i != skip))
+		}
+		return objs
+	}
+
+	tests := []struct {
+		name   string
+		objs   []client.Object
+		status metav1.ConditionStatus
+		reason string
+	}{
+		{"all established", allEstablished(-1), metav1.ConditionTrue, status.SubModuleReadyReason},
+		{"one not established", allEstablished(0), metav1.ConditionFalse, status.SubModuleNotReadyReason},
+		{"missing", nil, metav1.ConditionFalse, status.SubModuleNotReadyReason},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
+
+			m := newTestModule(t)
+			obj := newTestAIGateway()
+			obj.Spec.AIGrid.ManagementState = managedState
+			rr := newSubModuleRR(t, obj, tt.objs...)
+
+			g.Expect(m.reportSubModuleStatus(context.Background(), rr)).To(Succeed())
+
+			c := rr.Conditions.GetCondition(status.ConditionAIGridReady)
+			g.Expect(c).NotTo(BeNil())
+			g.Expect(c.Status).To(Equal(tt.status))
+			g.Expect(c.Reason).To(Equal(tt.reason))
+		})
+	}
+}
+
+func TestReportSubModuleStatus_AIGridRemoved(t *testing.T) {
+	g := NewWithT(t)
+
+	m := newTestModule(t)
+	obj := newTestAIGateway()
+	rr := newSubModuleRR(t, obj)
+
+	g.Expect(m.reportSubModuleStatus(context.Background(), rr)).To(Succeed())
+
+	c := rr.Conditions.GetCondition(status.ConditionAIGridReady)
+	g.Expect(c).NotTo(BeNil())
+	g.Expect(c.Status).To(Equal(metav1.ConditionFalse))
+	g.Expect(c.Severity).To(Equal(common.ConditionSeverityInfo))
+	g.Expect(c.Reason).To(Equal(status.SubModuleRemovedReason))
+}
+
+// TestOverWriteConditionAIGridOnly verifies a CRDs-only aiGrid does not keep
+// the 0/0 DeploymentsAvailable failure at Error severity.
+func TestOverWriteConditionAIGridOnly(t *testing.T) {
+	g := NewWithT(t)
+
+	m := newTestModule(t)
+	obj := newTestAIGateway()
+	obj.Spec.AIGrid.ManagementState = managedState
+	rr := newReadinessRR(obj)
+
+	rr.Conditions.MarkFalse(
+		status.ConditionDeploymentsAvailable,
+		conditions.WithMessage("0/0 deployments ready"),
+	)
+
+	g.Expect(m.overWriteCondition(context.Background(), rr)).To(Succeed())
+
+	da := rr.Conditions.GetCondition(status.ConditionDeploymentsAvailable)
+	g.Expect(da).NotTo(BeNil())
+	g.Expect(da.Severity).To(Equal(common.ConditionSeverityInfo))
+	g.Expect(rr.Conditions.GetCondition(readyCondition).Status).To(Equal(metav1.ConditionTrue))
 }

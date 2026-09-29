@@ -9,6 +9,7 @@ const (
 	// ModelsAsAServiceReady=False even though AIGateway itself is Ready.
 	ConditionModelsAsAServiceReady = "ModelsAsAServiceReady"
 	ConditionBatchGatewayReady     = "BatchGatewayReady"
+	ConditionAIGridReady           = "AIGridReady"
 
 	// NoSubModuleManagedReason is set on DeploymentsAvailable when all sub-modules are Removed
 	NoSubModuleManagedReason = "NoSubModuleManaged"
