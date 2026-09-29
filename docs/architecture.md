@@ -52,6 +52,10 @@ When `spec.modelsAsAService.managementState` is `Managed`, ai-gateway-operator r
 
 The operator's RBAC escalation rules in `config/rbac/role.yaml` must cover permissions inside the vendored `maascontroller` ClusterRoles (see kubebuilder markers in `aigateway_controller.go`). Do not edit `config/manifests/maascontroller/rbac/` directly — it is refreshed by `make get-manifests`.
 
+### AI Grid scope
+
+When `spec.aiGrid.managementState` is `Managed`, ai-gateway-operator applies the four AI Grid CRDs from `config/manifests/aigrid/` (vendored from `praxis-ai-grid-operator` `deploy/crds`). Nothing runs: no Deployment, so aiGrid does not affect `DeploymentsAvailable`; `AIGridReady` is True once the CRDs are Established. Setting `Removed` stops reconciling the CRDs but never deletes them, since that would delete every grid custom resource.
+
 ## 2. Build process
 
 ### 2.1 Each sub-component prepares its manifests
@@ -68,6 +72,7 @@ Each sub-component operator (e.g. batch-gateway-operator) lives in its own midst
 - The fetched files must be committed to git so that PR review can catch manifest changes and container builds remain reproducible without network access.
 - At build time, `Dockerfile` copies these manifests into the container image at `/manifests/`; the manager reads them from this path at runtime (see `config/manager/manager.yaml`).
 - To upgrade a sub-component, update the SHA in `get-manifests.sh`, re-run `make get-manifests`, and commit the result.
+- A flat source with plain YAML and no `kustomization.yaml` (e.g. `aigrid`) gets one generated listing its files.
 
 ### 2.3 ai-gateway-operator generates its own deploy manifests
 
