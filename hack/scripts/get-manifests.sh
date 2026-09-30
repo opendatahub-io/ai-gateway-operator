@@ -68,7 +68,7 @@ fetch_component() {
 
 declare -A COMPONENTS=(
     [batchgateway]="llm-d-batch-gateway-operator|config|e15b6aef0b8030e5428c2003744fa73bad81da84"
-    [maascontroller]="models-as-a-service|deployment/base/maas-controller|02cd6889ced6b8f513fc530a94bf61523e6995bc|02cd6889ced6b8f513fc530a94bf61523e6995bc"
+    [maascontroller]="models-as-a-service|deployment/base/maas-controller|353a85e841d8442afc976a539e49e2925b73e017|353a85e841d8442afc976a539e49e2925b73e017"
     [aigatewaycontroller]="ai-gateway-controller|config/self|57a3d5a2adf4dc9ec46759320002abb916385d00|57a3d5a2adf4dc9ec46759320002abb916385d00"
 )
 
