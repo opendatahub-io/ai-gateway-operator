@@ -86,6 +86,9 @@ import (
 // +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=validatingwebhookconfigurations,resourceNames=maas-validating-webhook-configuration,verbs=get;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=create;get;list;patch;update;watch
 
+// AI Grid CRDs (CRDs only). No delete: they are kept when aiGrid is Removed.
+// +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,resourceNames=gridnetworks.grid.praxis-proxy.io;gridsites.grid.praxis-proxy.io;inferenceproviders.grid.praxis-proxy.io;agenttoolproviders.grid.praxis-proxy.io,verbs=get;update;patch
+
 // ai-gateway-controller deployment - permissions to deploy its vendored manifests
 // (fetched by make get-manifests; do not edit config/manifests/aigatewaycontroller/
 // RBAC here).
@@ -167,6 +170,18 @@ func NewReconciler(
 		Watches(&corev1.ConfigMap{},
 			reconciler.WithPredicates(
 				predicate.NewPredicateFuncs(platformConfigMapPredicate(cfg.ApplicationsNamespace)),
+				predicate.ResourceVersionChangedPredicate{},
+			),
+			reconciler.WithEventMapper(func(_ context.Context, _ client.Object) []reconcile.Request {
+				return []reconcile.Request{{NamespacedName: types.NamespacedName{
+					Name: componentApi.AIGatewayInstanceName,
+				}}}
+			}),
+		).
+		// Requeue when an AI Grid CRD becomes Established (drives AIGridReady).
+		Watches(&apiextensionsv1.CustomResourceDefinition{},
+			reconciler.WithPredicates(
+				predicate.NewPredicateFuncs(aiGridCRDPredicate),
 				predicate.ResourceVersionChangedPredicate{},
 			),
 			reconciler.WithEventMapper(func(_ context.Context, _ client.Object) []reconcile.Request {

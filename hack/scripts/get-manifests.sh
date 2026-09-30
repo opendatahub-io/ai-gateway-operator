@@ -4,6 +4,26 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
+# Flat plain-YAML sources ship no kustomization; generate one (the render engine requires it).
+ensure_kustomization() {
+    local dir="$1"
+    [[ -f "${dir}/kustomization.yaml" ]] && return
+    [[ -n "$(find "${dir}" -mindepth 1 -maxdepth 1 -type d)" ]] && return
+
+    local files=("${dir}"/*.yaml)
+    [[ -e "${files[0]}" ]] || return 0
+    {
+        echo "apiVersion: kustomize.config.k8s.io/v1beta1"
+        echo "kind: Kustomization"
+        echo "resources:"
+        local f
+        for f in "${files[@]}"; do
+            echo "  - $(basename "${f}")"
+        done
+    } > "${dir}/kustomization.yaml"
+    echo "Generated ${dir}/kustomization.yaml"
+}
+
 fetch_component() {
     local component_name="$1"
     local repo_name="$2"
@@ -38,6 +58,7 @@ fetch_component() {
         rm -rf "${dst_manifests_dir}"
         mkdir -p "${dst_manifests_dir}"
         cp -a "${PROJECT_ROOT}/../${repo_name}/${src_path}/." "${dst_manifests_dir}/"
+        ensure_kustomization "${dst_manifests_dir}"
         echo "Manifests copied to ${dst_manifests_dir}"
         return
     fi
@@ -52,6 +73,7 @@ fetch_component() {
     rm -rf "${dst_manifests_dir}"
     mkdir -p "${dst_manifests_dir}"
     cp -a "${tmp_dir}/${src_path}/." "${dst_manifests_dir}/"
+    ensure_kustomization "${dst_manifests_dir}"
 
     rm -rf "${tmp_dir}"
 
@@ -70,6 +92,7 @@ declare -A COMPONENTS=(
     [batchgateway]="llm-d-batch-gateway-operator|config|e15b6aef0b8030e5428c2003744fa73bad81da84"
     [maascontroller]="models-as-a-service|deployment/base/maas-controller|353a85e841d8442afc976a539e49e2925b73e017|353a85e841d8442afc976a539e49e2925b73e017"
     [aigatewaycontroller]="ai-gateway-controller|config/self|57a3d5a2adf4dc9ec46759320002abb916385d00|57a3d5a2adf4dc9ec46759320002abb916385d00"
+    [aigrid]="praxis-ai-grid-operator|deploy/crds|0903bd8a05f06b6696b8da159576c3c881344907|1c12d5b53bf120d813b2d8bccd0f95dd6ea2f9fd"
 )
 
 for component_name in "${!COMPONENTS[@]}"; do

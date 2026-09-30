@@ -19,6 +19,7 @@ package aigateway
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"testing"
 
@@ -31,6 +32,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -42,8 +44,10 @@ import (
 	"github.com/opendatahub-io/ai-gateway-operator/pkg/controller/status"
 	"github.com/opendatahub-io/ai-gateway-operator/pkg/version"
 	"github.com/opendatahub-io/opendatahub-operator/v2/pkg/cluster"
+	"github.com/opendatahub-io/opendatahub-operator/v2/pkg/cluster/gvk"
 	"github.com/opendatahub-io/opendatahub-operator/v2/pkg/controller/conditions"
 	odhtypes "github.com/opendatahub-io/opendatahub-operator/v2/pkg/controller/types"
+	"github.com/opendatahub-io/opendatahub-operator/v2/pkg/manifests/kustomize"
 	odhAnnotations "github.com/opendatahub-io/opendatahub-operator/v2/pkg/metadata/annotations"
 )
 
@@ -1050,4 +1054,99 @@ func TestPlatformConfigMapPredicate(t *testing.T) {
 			g.Expect(pred(obj)).To(Equal(tt.expected))
 		})
 	}
+}
+
+func TestAIGridCRDPredicate(t *testing.T) {
+	tests := []struct {
+		name     string
+		crdName  string
+		expected bool
+	}{
+		{"grid CRD", "gridsites" + aiGridCRDSuffix, true},
+		{"other CRD", "llmbatchgateways.batch.llm-d.ai", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
+			obj := &extv1.CustomResourceDefinition{ObjectMeta: metav1.ObjectMeta{Name: tt.crdName}}
+			g.Expect(aiGridCRDPredicate(obj)).To(Equal(tt.expected))
+		})
+	}
+}
+
+func TestInitializeManagedAIGrid(t *testing.T) {
+	g := NewWithT(t)
+
+	m := newTestModule(t)
+	obj := newTestAIGateway()
+	obj.Spec.AIGrid.ManagementState = managedState
+	rr := newTestRR(obj)
+
+	g.Expect(m.initialize(context.Background(), rr)).To(Succeed())
+	g.Expect(rr.Manifests).To(HaveLen(1))
+	g.Expect(rr.Manifests[0].ContextDir).To(Equal("aigrid"))
+	g.Expect(rr.Manifests[0].String()).To(Equal("/manifests/aigrid"))
+}
+
+func TestInitializeRemovedAIGrid(t *testing.T) {
+	g := NewWithT(t)
+
+	m := newTestModule(t)
+	obj := newTestAIGateway()
+	obj.Spec.AIGrid.ManagementState = removedState
+	rr := newTestRR(obj)
+
+	g.Expect(m.initialize(context.Background(), rr)).To(Succeed())
+	g.Expect(rr.Manifests).To(BeEmpty())
+}
+
+func TestMaasAwareGCPredicateKeepsStaleAIGridCRD(t *testing.T) {
+	g := NewWithT(t)
+
+	m := newTestModule(t)
+	obj := newTestAIGateway()
+	obj.UID = "test-uid"
+	obj.Generation = 3
+	rr := newTestRR(obj)
+	rr.Client = fake.NewClientBuilder().WithScheme(newTestScheme(t)).Build()
+
+	// Generation annotation behind the instance's, so the default predicate says stale.
+	stale := func(k schema.GroupVersionKind, name string) unstructured.Unstructured {
+		u := unstructured.Unstructured{}
+		u.SetGroupVersionKind(k)
+		u.SetName(name)
+		u.SetAnnotations(map[string]string{
+			odhAnnotations.PlatformVersion:    rr.Release.Version.String(),
+			odhAnnotations.PlatformType:       string(rr.Release.Name),
+			odhAnnotations.InstanceGeneration: "2",
+			odhAnnotations.InstanceUID:        string(obj.GetUID()),
+		})
+		return u
+	}
+
+	deletable, err := m.maasAwareGCPredicate(rr, stale(gvk.CustomResourceDefinition, "gridsites"+aiGridCRDSuffix))
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(deletable).To(BeFalse())
+
+	deletable, err = m.maasAwareGCPredicate(rr, stale(gvk.ConfigMap, "some-config"))
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(deletable).To(BeTrue())
+}
+
+// TestAIGridManifestsRenderOnlyCRDs renders the vendored aigrid bundle the way
+// the kustomize action does and expects exactly the four grid CRDs.
+func TestAIGridManifestsRenderOnlyCRDs(t *testing.T) {
+	g := NewWithT(t)
+
+	mi := odhtypes.ManifestInfo{Path: filepath.Join("..", "..", "..", "config", "manifests"), ContextDir: "aigrid"}
+	objs, err := kustomize.NewEngine().Render(mi.String(), kustomize.WithNamespace("test-ns"))
+	g.Expect(err).NotTo(HaveOccurred())
+
+	names := make([]string, 0, len(objs))
+	for _, o := range objs {
+		g.Expect(o.GroupVersionKind()).To(Equal(gvk.CustomResourceDefinition))
+		names = append(names, o.GetName())
+	}
+	g.Expect(names).To(ConsistOf(aiGridCRDNames))
 }
