@@ -97,7 +97,6 @@ import (
 // MaaS RBAC escalation for manager-role — permissions granted inside vendored maascontroller ClusterRoles.
 // Required so ai-gateway-operator can create/patch those roles without RBAC escalation errors.
 // Cluster-wide rules (no resourceNames) are required for escalation; named-role rules alone are not enough.
-// +kubebuilder:rbac:groups="",resources=serviceaccounts/token,verbs=create
 // +kubebuilder:rbac:groups="",resources=endpoints;pods,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=patch
 // +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=get
