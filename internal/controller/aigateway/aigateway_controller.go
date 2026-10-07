@@ -93,6 +93,7 @@ import (
 // ai-gateway-controller-role also grants cluster-wide clusterroles/clusterrolebindings update
 // (payload-processing-reader per tenant). Cluster-scoped update here is required for
 // RBAC escalation when AGO applies that vendored ClusterRole.
+// +kubebuilder:rbac:groups=aigateway.opendatahub.io,resources=aiguardrails,verbs=get;list;watch
 
 // MaaS RBAC escalation for manager-role — permissions granted inside vendored maascontroller ClusterRoles.
 // Required so ai-gateway-operator can create/patch those roles without RBAC escalation errors.
