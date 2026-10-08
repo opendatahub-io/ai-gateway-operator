@@ -114,7 +114,7 @@ var aiGatewayControllerImageParamMap = map[string]string{
 }
 
 // aiGridCRDSuffix is the API group suffix shared by all AI Grid CRDs.
-const aiGridCRDSuffix = ".grid.praxis-proxy.io"
+const aiGridCRDSuffix = ".grid.praxis.fast"
 
 // aiGridCRDNames are the CRDs vendored in config/manifests/aigrid.
 var aiGridCRDNames = []string{

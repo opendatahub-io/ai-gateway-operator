@@ -92,7 +92,7 @@ declare -A COMPONENTS=(
     [batchgateway]="llm-d-batch-gateway-operator|config|1fdf57bc2bc5b6ab3cb3ebbc93d04d54e2531059"
     [maascontroller]="models-as-a-service|deployment/base/maas-controller|353a85e841d8442afc976a539e49e2925b73e017|353a85e841d8442afc976a539e49e2925b73e017"
     [aigatewaycontroller]="ai-gateway-controller|config/self|46caf7ee42c74e49ddbb2f1037895c0a89251a39|46caf7ee42c74e49ddbb2f1037895c0a89251a39"
-    [aigrid]="praxis-ai-grid-operator|deploy/crds|0903bd8a05f06b6696b8da159576c3c881344907|1c12d5b53bf120d813b2d8bccd0f95dd6ea2f9fd"
+    [aigrid]="praxis-ai-grid-operator|deploy/crds|cc9c3004514a4b40d76baafb3f6263a25ab27fe9|8ec9c25e8f8a025e8d44f130be9ede22a3009da4"
 )
 
 for component_name in "${!COMPONENTS[@]}"; do

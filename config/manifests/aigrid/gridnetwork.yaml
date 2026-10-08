@@ -1,14 +1,14 @@
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
-  name: gridnetworks.grid.praxis-proxy.io
+  name: gridnetworks.grid.praxis.fast
 spec:
-  group: grid.praxis-proxy.io
+  group: grid.praxis.fast
   names:
-    categories: []
     kind: GridNetwork
     plural: gridnetworks
-    shortNames: []
+    shortNames:
+      - gnw
     singular: gridnetwork
   scope: Cluster
   versions:
@@ -164,9 +164,11 @@ spec:
                           When absent or `enabled: false`, this gateway behaves exactly as before —
                           only the routing overlay `ConfigMap` is applied.  When `enabled: true`, the
                           operator additionally renders a consumer Praxis `ConfigMap` containing the
-                          `intelligent_route` candidates (with credential `secretRef` data), a
-                          `credential_inject` section for credential-bearing candidates, and a
-                          `load_balancer` section with one cluster entry per unique candidate cluster.
+                          inference-model `intelligent_route` candidates (with credential
+                          `secretRef` data), a `credential_inject` section for credential-bearing
+                          inference candidates, and a `load_balancer` section with one cluster
+                          entry per unique inference cluster. Other capability kinds remain in the
+                          routing overlay for dedicated data-plane pipelines.
 
                           The generated `ConfigMap` contains no token bytes.
                         nullable: true
@@ -176,10 +178,10 @@ spec:
                             description: |-
                               Endpoint topology for the generated `load_balancer` section.
 
-                              Each entry maps a routing candidate cluster name to a reachable endpoint
-                              address with explicit transport configuration.  Every cluster referenced
-                              by a routing candidate must have a matching entry here with a non-`None`
-                              `transport` field.
+                              Each entry maps an inference candidate cluster name to a reachable endpoint
+                              address with explicit transport configuration. Every cluster referenced
+                              by a projected inference candidate must have a matching entry here with a
+                              non-`None` `transport` field.
 
                               Missing endpoint topology causes config generation to fail with
                               `MissingClusterEndpoint`.  Missing transport fails with
@@ -191,14 +193,15 @@ spec:
                               In local Kind validation, the xtask harness discovers `NodePort` addresses
                               and populates this field in the test fixture.
 
-                              Default: empty — valid only when the rendered overlay has no candidates.
+                              Default: empty. Supply entries before enabling generated consumer config
+                              for an overlay containing inference candidates.
                             items:
                               description: |-
                                 Endpoint configuration for one consumer `load_balancer` cluster.
 
-                                Maps a routing candidate cluster name to a reachable provider gateway
-                                endpoint with explicit transport intent.  Every cluster referenced by
-                                a routing candidate must have a matching entry.
+                                Maps an inference candidate cluster name to a reachable provider gateway
+                                endpoint with explicit transport intent. Every cluster referenced by a
+                                projected inference candidate must have a matching entry.
 
                                 # Transport requirement
 
@@ -212,7 +215,7 @@ spec:
                                   description: Reachable endpoint address (`host:port`).
                                   type: string
                                 cluster:
-                                  description: Cluster name — must match a `candidate.cluster` value in the routing overlay.
+                                  description: Cluster name - must match a projected inference `candidate.cluster` value.
                                   type: string
                                 transport:
                                   description: |-
@@ -279,6 +282,63 @@ spec:
                             maximum: 65535.0
                             minimum: 0.0
                             type: integer
+                          telemetry:
+                            description: |-
+                              Optional OpenTelemetry exporter and sampling settings for this gateway.
+
+                              When present, the generated Praxis configuration opts into telemetry and
+                              adds the `trace_context` filter for outbound W3C header propagation.
+                              Collector authentication must be provided to the gateway Deployment via
+                              `OTEL_EXPORTER_OTLP_HEADERS` from a Secret; credentials are never copied
+                              into this `ConfigMap`.
+                            nullable: true
+                            properties:
+                              batchIntervalSecs:
+                                description: Batch exporter interval in seconds. Must be from 1 through 300 when set.
+                                format: uint64
+                                maximum: 300.0
+                                minimum: 1.0
+                                nullable: true
+                                type: integer
+                              batchSize:
+                                description: Maximum spans per export batch. Must be from 1 through 65,536 when set.
+                                format: uint
+                                maximum: 65536.0
+                                minimum: 1.0
+                                nullable: true
+                                type: integer
+                              environment:
+                                description: Deployment environment resource attribute.
+                                nullable: true
+                                pattern: ^.*\S.*$
+                                type: string
+                              otlpEndpoint:
+                                description: |-
+                                  OTLP collector endpoint, for example `http://otel-collector:4317`.
+
+                                  If omitted, Praxis can read `OTEL_EXPORTER_OTLP_ENDPOINT` from the
+                                  gateway Deployment. An empty string has the same meaning as omission.
+                                nullable: true
+                                pattern: ^(|https?://[^/?#@\s]+(:[0-9]+)?(/[^\s?#]*)?)$
+                                type: string
+                              samplingRate:
+                                description: Root trace sampling probability from `0.0` through `1.0`.
+                                format: double
+                                maximum: 1.0
+                                minimum: 0.0
+                                nullable: true
+                                type: number
+                              serviceName:
+                                description: OpenTelemetry `service.name` resource attribute.
+                                nullable: true
+                                pattern: ^.*\S.*$
+                                type: string
+                              serviceVersion:
+                                description: OpenTelemetry `service.version` resource attribute.
+                                nullable: true
+                                pattern: ^.*\S.*$
+                                type: string
+                            type: object
                           tlsCertMountPath:
                             default: /etc/praxis/tls
                             description: |-
@@ -337,12 +397,21 @@ spec:
                   nullable: true
                   pattern: ^([1-9][0-9]*s|[1-9][0-9]{3,}ms)$
                   type: string
-                region:
-                  description: Region where this site is deployed.
+                peerTrust:
+                  description: Grid-wide peer trust on the signals path, `pin` when absent, read at operator start.
                   nullable: true
-                  type: string
+                  properties:
+                    mode:
+                      description: Peer trust mode.
+                      enum:
+                        - pin
+                        - spiffe
+                      type: string
+                  required:
+                    - mode
+                  type: object
                 placementPolicy:
-                  description: Static provider-capacity placement policy.
+                  description: Optional static capacity-placement policy.
                   nullable: true
                   properties:
                     strategy:
@@ -353,6 +422,10 @@ spec:
                   required:
                     - strategy
                   type: object
+                region:
+                  description: Region where this site is deployed.
+                  nullable: true
+                  type: string
                 routingPolicy:
                   description: |-
                     Candidate ordering policy for the routing overlay.
@@ -392,7 +465,9 @@ spec:
                   type: object
                 seeds:
                   default: []
-                  description: Initial SWIM seed peer endpoints in host:port form. Literal IPv4, bracketed IPv6, and DNS hostnames are accepted.
+                  description: |-
+                    Initial SWIM seed peer endpoints in host:port form. Literal IPv4, bracketed
+                    IPv6, and DNS hostnames are accepted.
                   items:
                     type: string
                   type: array
@@ -450,6 +525,10 @@ spec:
                     omitted from the rendered overlay.  Fresh (`fresh=true`) candidates and
                     local candidates are never evicted.  CRDT provider records in storage
                     are not deleted.
+
+                    It does not delete `GridSite` objects: auto-discovered stubs that gossip
+                    stops vouching for are collected after a fixed 24 hours, whatever this
+                    field is. Declared `GridSite` objects are never deleted.
 
                     **Default (absent):** stale candidates are retained indefinitely —
                     the same behaviour as before this field existed.
@@ -719,6 +798,35 @@ spec:
                   default: ""
                   description: The negotiated grid ID.
                   type: string
+                identity:
+                  description: 'This site''s identity certificate: when it expires and when rotation is due.'
+                  nullable: true
+                  properties:
+                    fingerprint:
+                      description: SHA-256 of the certificate DER, the digest peers pin.
+                      type: string
+                    message:
+                      description: How to recover.
+                      type: string
+                    notAfter:
+                      description: When the certificate expires, RFC 3339.
+                      type: string
+                    reason:
+                      description: |-
+                        `IdentityExpired` once the certificate has expired, `IdentityUnreadable` when the
+                        Secret holds no usable certificate.
+                      pattern: ^(IdentityExpired|IdentityUnreadable)$
+                      type: string
+                    rotateAfter:
+                      description: |-
+                        When rotation is due, a third of the lifetime before `notAfter`, RFC 3339. Empty
+                        under pin peer trust, or when this site's operator does not rotate.
+                      type: string
+                  required:
+                    - fingerprint
+                    - notAfter
+                    - rotateAfter
+                  type: object
                 observedGeneration:
                   default: 0
                   description: Last observed generation.

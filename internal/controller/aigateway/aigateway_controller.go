@@ -87,7 +87,7 @@ import (
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=create;get;list;patch;update;watch
 
 // AI Grid CRDs (CRDs only). No delete: they are kept when aiGrid is Removed.
-// +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,resourceNames=gridnetworks.grid.praxis-proxy.io;gridsites.grid.praxis-proxy.io;inferenceproviders.grid.praxis-proxy.io;agenttoolproviders.grid.praxis-proxy.io,verbs=get;update;patch
+// +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,resourceNames=gridnetworks.grid.praxis.fast;gridsites.grid.praxis.fast;inferenceproviders.grid.praxis.fast;agenttoolproviders.grid.praxis.fast,verbs=get;update;patch
 
 // ai-gateway-controller deployment - permissions to deploy its vendored manifests
 // (fetched by make get-manifests; do not edit config/manifests/aigatewaycontroller/

@@ -1,14 +1,14 @@
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
-  name: gridsites.grid.praxis-proxy.io
+  name: gridsites.grid.praxis.fast
 spec:
-  group: grid.praxis-proxy.io
+  group: grid.praxis.fast
   names:
-    categories: []
     kind: GridSite
     plural: gridsites
-    shortNames: []
+    shortNames:
+      - gs
     singular: gridsite
   scope: Cluster
   versions:
@@ -134,6 +134,14 @@ spec:
               description: Observed status of a [`GridSite`].
               nullable: true
               properties:
+                absentSince:
+                  description: |-
+                    When gossip stopped vouching for this auto-discovered site; cleared when it returns.
+
+                    Auto discovery deletes the site once this is older than 24 hours. Never set on a
+                    declared site.
+                  nullable: true
+                  type: string
                 capabilities:
                   default:
                     agentToAgent: false
@@ -155,7 +163,11 @@ spec:
                       type: boolean
                   type: object
                 lastProbeTime:
-                  description: Timestamp of the last data-plane gateway health evaluation.
+                  description: |-
+                    Timestamp of the last probe whose resulting status was persisted.
+
+                    This is not a liveness heartbeat; it may remain unchanged when a probe
+                    produces no status changes.
                   nullable: true
                   type: string
                 lastTransitionTime:
