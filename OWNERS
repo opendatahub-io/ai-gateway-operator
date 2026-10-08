@@ -4,6 +4,8 @@ approvers:
   - ishitasequeira
   - jrhyness
   - somya-bhatnagar
+  - pierDipi
+  - bartoszmajsak
   - llm-d-team
 
 reviewers:
@@ -12,4 +14,6 @@ reviewers:
   - ishitasequeira
   - jrhyness
   - somya-bhatnagar
+  - pierDipi
+  - bartoszmajsak
   - llm-d-team
