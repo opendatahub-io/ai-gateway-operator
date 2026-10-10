@@ -27,7 +27,7 @@ spec:
         args:
           - --leader-elect
           - --health-probe-bind-address=:8081
-          - --image=$(RELATED_IMAGE_ODH_PRAXIS_EXTPROC_IMAGE)
+          - --praxis-image=$(RELATED_IMAGE_ODH_PRAXIS_EXTPROC_IMAGE)
         env:
           - name: LOG_DEVELOPMENT
             value: "false"
