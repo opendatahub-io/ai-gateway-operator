@@ -85,6 +85,13 @@ rules:
 # destinationrules already covered above (full CRUD, needed for the
 # vendored overlay's own DestinationRule), so no separate mirror rule is
 # needed here.
+# Authenticated metrics scraping (filters.WithAuthenticationAndAuthorization).
+- apiGroups: ["authentication.k8s.io"]
+  resources: ["tokenreviews"]
+  verbs: ["create"]
+- apiGroups: ["authorization.k8s.io"]
+  resources: ["subjectaccessreviews"]
+  verbs: ["create"]
 # Leader election (--leader-elect) and event recording.
 - apiGroups: ["coordination.k8s.io"]
   resources: ["leases"]

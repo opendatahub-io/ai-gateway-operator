@@ -16,4 +16,3 @@ spec:
         - name: metrics-certs
           secret:
             secretName: ai-gateway-controller-metrics-tls
-            optional: true

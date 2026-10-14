@@ -81,6 +81,9 @@ func maasPrerequisites(ctx context.Context, k8sClient client.Client, ns string) 
 	if err := ensureTLSSecret(ctx, k8sClient, ns, "maas-controller-metrics-tls", "maas-controller-metrics"); err != nil {
 		return fmt.Errorf("creating metrics cert secret: %w", err)
 	}
+	if err := ensureTLSSecret(ctx, k8sClient, ns, "ai-gateway-controller-metrics-tls", "ai-gateway-controller-metrics"); err != nil {
+		return fmt.Errorf("creating ai-gateway-controller metrics cert secret: %w", err)
+	}
 
 	// 3. Optional CRD stubs — maas-controller watches authpolicies and
 	//    tokenratelimitpolicies (kuadrant.io) and llminferenceservices
