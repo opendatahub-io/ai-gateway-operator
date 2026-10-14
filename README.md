@@ -8,6 +8,11 @@ A Kubernetes operator that manages AI Gateway components for [Open Data Hub](htt
 - A Kubernetes cluster (Kind, CRC, or OpenShift)
 - `kubectl` configured to access the cluster
 
+## CI and dependency updates
+
+- GitHub Actions CI runs `govulncheck` on every push and pull request. The job is temporarily non-blocking until existing dependency / Go toolchain vulnerability pins are remediated; after that it should fail the check on known-vulnerable reachable modules.
+- [Dependabot](https://docs.github.com/en/code-security/dependabot) is configured via `.github/dependabot.yml` to open weekly pull requests for Go module and GitHub Actions updates.
+
 ## Documentation
 
 - **[Enabling Models as a Service](docs/enabling-models-as-a-service.md)** - Deploy and manage MaaS for multi-tenant model inference

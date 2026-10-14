@@ -29,6 +29,31 @@ jobs:
       - name: Lint
         run: make lint
 
+  govulncheck:
+    permissions:
+      contents: read
+    name: govulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      # Temporary non-blocking: current tree reports reachable vulns in
+      # golang.org/x/net, golang.org/x/text, otel/grpc transitive deps, and the
+      # Go stdlib (needs a newer toolchain patch). CVE remediation is tracked
+      # separately; flip to blocking once those pins are cleared.
+      - name: Run govulncheck (non-blocking until dependency/toolchain pins are cleared)
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./... || true
+
   test:
     permissions:
       contents: read
