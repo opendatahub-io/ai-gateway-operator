@@ -681,7 +681,7 @@ func maasCleanup(ctx context.Context, k8sClient client.Client, ns string) {
 		}
 	}
 
-	for _, secretName := range []string{"maas-controller-webhook-cert", "maas-controller-metrics-tls"} {
+	for _, secretName := range []string{"maas-controller-webhook-cert", "maas-controller-metrics-tls", "ai-gateway-controller-metrics-tls"} {
 		s := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: ns},
 		}
