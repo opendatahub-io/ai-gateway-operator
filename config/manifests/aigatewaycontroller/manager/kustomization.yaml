@@ -3,6 +3,14 @@ kind: Kustomization
 
 resources:
   - manager.yaml
+  - metrics_service.yaml
+
+patches:
+  - path: manager_metrics_patch.yaml
+    target:
+      kind: Deployment
+      name: ai-gateway-controller
+  - path: cert_metrics_patch.yaml
 
 images:
   - name: ai-gateway-controller
