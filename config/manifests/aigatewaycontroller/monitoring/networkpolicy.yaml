@@ -21,7 +21,7 @@ spec:
     - Ingress
   ingress:
     # HTTPS metrics scraping from supported monitoring namespaces.
-    # RHOAI: redhat-ods-monitoring; OpenShift CMO: openshift-monitoring.
+    # RHOAI: redhat-ods-monitoring; OpenShift cluster monitoring: openshift-monitoring.
     - from:
         - namespaceSelector:
             matchExpressions:
