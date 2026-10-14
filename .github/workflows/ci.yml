@@ -47,11 +47,11 @@ jobs:
           cache: true
           cache-dependency-path: go.sum
 
-      # Temporary non-blocking: current tree reports reachable vulns in
-      # golang.org/x/net, golang.org/x/text, otel/grpc transitive deps, and the
-      # Go stdlib (needs a newer toolchain patch). CVE remediation is tracked
-      # separately; flip to blocking once those pins are cleared.
-      - name: Run govulncheck (non-blocking until dependency/toolchain pins are cleared)
+      # Temporary non-blocking: remaining findings are Go stdlib CVEs that need a
+      # newer toolchain patch than product/CI base images currently ship
+      # (e.g. ubi go-toolset still on 1.26.2). Flip to blocking once the
+      # toolchain pin is available.
+      - name: Run govulncheck (non-blocking until Go toolchain patch is available)
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./... || true
 
   test:

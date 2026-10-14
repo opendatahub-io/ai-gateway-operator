@@ -10,7 +10,7 @@ A Kubernetes operator that manages AI Gateway components for [Open Data Hub](htt
 
 ## CI and dependency updates
 
-- GitHub Actions CI runs `govulncheck` on every push and pull request. The job is temporarily non-blocking until existing dependency / Go toolchain vulnerability pins are remediated; after that it should fail the check on known-vulnerable reachable modules.
+- GitHub Actions CI runs `govulncheck` on every push and pull request. The job is temporarily non-blocking for remaining Go stdlib findings until a newer toolchain patch is available in product base images; module dependency bumps are expected to keep non-stdlib findings clear.
 - [Dependabot](https://docs.github.com/en/code-security/dependabot) is configured via `.github/dependabot.yml` to open weekly pull requests for Go module and GitHub Actions updates.
 
 ## Documentation
