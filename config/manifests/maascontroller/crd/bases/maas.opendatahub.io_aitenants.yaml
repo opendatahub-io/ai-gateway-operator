@@ -40,8 +40,9 @@ spec:
           network-admin-provisioned Gateway reference, the MaaS tenant config object,
           and tenant-admin Roles.
 
-          Praxis tenants (ai-gateway-controller owns payload processing) opt out of
-          maas-controller IPP via metadata.annotations["maas.opendatahub.io/payload-processing-type"]="praxis".
+          Payload processing defaults to praxis (ai-gateway-controller). Opt into
+          maas-controller legacy IPP via MaasTenantConfig annotation
+          maas.opendatahub.io/payload-processing-type=ipp.
 
           The AITenant name is used as a suffix for per-tenant maas-api resources
           (e.g., "maas-api-{tenant-name}"). To fit within the Kubernetes 63-character
@@ -80,12 +81,87 @@ spec:
                     pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$
                     type: string
                 type: object
+              guardrails:
+                description: |-
+                  Guardrails attaches reusable AIGuardrail policies as the platform-admin
+                  baseline for this tenant. The referenced policies resolve in the accepted
+                  tenant target namespace (status.tenantNamespace) and apply to every
+                  authorized request; lower scopes add to this baseline and cannot remove it.
+                items:
+                  description: |-
+                    GuardrailAttachment attaches an AIGuardrail policy to a MaaS resource and
+                    selects which of the policy's checks apply.
+
+                    Attachments are additive across scopes (tenant, subscription): the effective
+                    set of checks is the union of every scope's selection, and one scope cannot
+                    remove checks contributed by another. Multiple entries referencing the same
+                    policy contribute a union of their selected checks.
+                  properties:
+                    checks:
+                      description: |-
+                        Checks selects check names from the referenced AIGuardrail's spec.checks.
+                        An omitted or empty list selects every check in the policy, including
+                        checks added to the policy later. A non-empty list selects only the named
+                        checks. Names must be unique and must exist in the referenced policy.
+                      items:
+                        maxLength: 63
+                        minLength: 1
+                        pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                        type: string
+                      maxItems: 64
+                      type: array
+                      x-kubernetes-list-type: set
+                    ref:
+                      description: Ref identifies the AIGuardrail policy to attach.
+                      properties:
+                        name:
+                          description: Name is the name of the AIGuardrail policy
+                            to attach.
+                          maxLength: 253
+                          minLength: 1
+                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                          type: string
+                      required:
+                      - name
+                      type: object
+                  required:
+                  - ref
+                  type: object
+                maxItems: 64
+                type: array
+                x-kubernetes-list-type: atomic
               oidc:
                 description: |-
                   OIDC contains non-MaaS-specific OIDC settings for this AI Gateway tenant.
                   AITenant is the source of truth for this derived platform context; the
                   bridge Tenant config object owns MaaS-specific user config only.
                 properties:
+                  accessTokenPurpose:
+                    description: |-
+                      AccessTokenPurpose is the exact value required in AccessTokenPurposeClaim.
+                      It and AccessTokenPurposeClaim must be set together and are required for
+                      delegated Grid administration.
+                    maxLength: 128
+                    minLength: 1
+                    pattern: ^\S+$
+                    type: string
+                  accessTokenPurposeClaim:
+                    description: |-
+                      AccessTokenPurposeClaim is the simple token claim name that carries the
+                      access-token purpose, such as token_use. It and AccessTokenPurpose must be
+                      set together and are required for delegated Grid administration.
+                    maxLength: 128
+                    minLength: 1
+                    pattern: ^[A-Za-z0-9_-]+$
+                    type: string
+                  audience:
+                    description: |-
+                      Audience is the exact OIDC audience required in the token `aud` claim.
+                      It must be set for delegated Grid administration.
+                    maxLength: 256
+                    minLength: 1
+                    pattern: ^\S+$
+                    type: string
                   clientId:
                     description: ClientID is the OAuth2 client ID.
                     maxLength: 256
@@ -107,6 +183,10 @@ spec:
                 - clientId
                 - issuerUrl
                 type: object
+                x-kubernetes-validations:
+                - message: accessTokenPurposeClaim and accessTokenPurpose must be
+                    set together
+                  rule: has(self.accessTokenPurposeClaim) == has(self.accessTokenPurpose)
               rbac:
                 description: |-
                   RBAC is retained only for compatibility with existing AITenant manifests.
@@ -149,6 +229,55 @@ spec:
                       type: object
                     maxItems: 128
                     type: array
+                type: object
+              responses:
+                description: |-
+                  Responses requests tenant-owned Responses and Conversations support.
+                  Omission disables both APIs. AI Gateway owns runtime and storage readiness.
+                properties:
+                  enabled:
+                    default: false
+                    description: Enabled enables Responses and Conversations together.
+                      Requires Praxis.
+                    type: boolean
+                  retention:
+                    description: |-
+                      Retention limits persisted Responses, conversation items and continuation state.
+                      Omission does not request a tenant-specific retention limit.
+                    properties:
+                      maxAge:
+                        description: MaxAge is a positive duration, for example "168h".
+                        maxLength: 32
+                        pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
+                        type: string
+                        x-kubernetes-validations:
+                        - message: maxAge must be a positive duration
+                          rule: duration(self) > duration('0s')
+                    required:
+                    - maxAge
+                    type: object
+                  storage:
+                    default: {}
+                    description: |-
+                      Storage selects the separate platform Responses database binding.
+                      It never reuses the MaaS API-key database or provisions a database.
+                    properties:
+                      deletionPolicy:
+                        default: Retain
+                        description: |-
+                          DeletionPolicy retains content when Responses is disabled or the tenant is deleted.
+                          Externally managed databases are never deleted by tenant reconciliation.
+                        enum:
+                        - Retain
+                        type: string
+                      mode:
+                        default: PlatformDefault
+                        description: Mode selects the platform-provisioned Responses
+                          connection and CA binding.
+                        enum:
+                        - PlatformDefault
+                        type: string
+                    type: object
                 type: object
             type: object
           status:
