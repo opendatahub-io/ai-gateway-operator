@@ -78,13 +78,6 @@ func Resolve(ctx context.Context, k8sClient client.Client, logger logr.Logger) (
 	}
 	result.Profile = profile
 
-	tlsConfigFn, unsupported := tlspkg.NewTLSConfigFromProfile(profile)
-	if len(unsupported) > 0 {
-		logger.Info("TLS profile contains unsupported ciphers", "unsupported", unsupported)
-	}
-	result.TLSOpts = append(result.TLSOpts, tlsConfigFn)
-	result.TLSOpts = append(result.TLSOpts, tlspkg.SetNextProtos(tlspkg.HTTP2NextProtos...))
-
 	adherence, adherenceErr := tlspkg.FetchAPIServerTLSAdherencePolicy(bootstrapCtx, k8sClient)
 	if adherenceErr != nil {
 		switch {
@@ -102,6 +95,9 @@ func Resolve(ctx context.Context, k8sClient client.Client, logger logr.Logger) (
 			// silently dropped. InitialTLSAdherencePolicy stays zero-value, which causes
 			// one extra restart on the first reconcile (acceptable vs. never reloading).
 			logger.Info("Transient error fetching TLS adherence policy, watcher will detect change on first reconcile", "error", adherenceErr)
+			// Reset the local so the fallback below does not depend on the
+			// library's error-path return value.
+			adherence = configv1.TLSAdherencePolicyNoOpinion
 			result.AdherenceFetched = true
 		default:
 			return nil, fmt.Errorf("reading APIServer TLS adherence policy: %w", adherenceErr)
@@ -111,7 +107,76 @@ func Resolve(ctx context.Context, k8sClient client.Client, logger logr.Logger) (
 	}
 	result.Adherence = adherence
 
+	if adherence == configv1.TLSAdherencePolicyNoOpinion || adherence == configv1.TLSAdherencePolicyLegacyAdheringComponentsOnly {
+		profile = *configv1.TLSProfiles[configv1.TLSProfileIntermediateType]
+	}
+
+	minVersion, err := tlsVersion(profile.MinTLSVersion)
+	if err != nil {
+		return nil, err
+	}
+	if profile.MinTLSVersion == "" {
+		profile.MinTLSVersion = configv1.VersionTLS12
+	}
+
+	tlsConfigFn, unsupported := tlspkg.NewTLSConfigFromProfile(profile)
+	if minVersion < tls.VersionTLS13 {
+		if len(profile.Ciphers) == 0 {
+			return nil, fmt.Errorf("TLS profile has no cipher suites for minimum version %s", profile.MinTLSVersion)
+		}
+
+		configured := &tls.Config{}
+		tlsConfigFn(configured)
+		cipherSuites := make([]uint16, 0, len(configured.CipherSuites))
+		runtimeSuites := runtimeCipherSuites()
+		for _, suite := range configured.CipherSuites {
+			if _, ok := runtimeSuites[suite]; ok && (suite < 0x1300 || suite > 0x13ff) {
+				cipherSuites = append(cipherSuites, suite)
+			} else {
+				unsupported = append(unsupported, fmt.Sprintf("0x%04x", suite))
+			}
+		}
+		if len(profile.Ciphers) > 0 && len(cipherSuites) == 0 {
+			return nil, fmt.Errorf("TLS profile has no supported cipher suites for minimum version %s", profile.MinTLSVersion)
+		}
+		result.TLSOpts = append(result.TLSOpts, func(c *tls.Config) {
+			tlsConfigFn(c)
+			if len(profile.Ciphers) > 0 {
+				c.CipherSuites = cipherSuites
+			}
+		})
+	} else {
+		result.TLSOpts = append(result.TLSOpts, tlsConfigFn)
+	}
+	if len(unsupported) > 0 {
+		logger.Info("TLS profile contains unsupported ciphers", "unsupported", unsupported)
+	}
+	result.TLSOpts = append(result.TLSOpts, tlspkg.SetNextProtos(tlspkg.HTTP2NextProtos...))
+
 	return result, nil
+}
+
+func tlsVersion(version configv1.TLSProtocolVersion) (uint16, error) {
+	switch version {
+	case "", configv1.VersionTLS12:
+		return tls.VersionTLS12, nil
+	case configv1.VersionTLS10:
+		return tls.VersionTLS10, nil
+	case configv1.VersionTLS11:
+		return tls.VersionTLS11, nil
+	case configv1.VersionTLS13:
+		return tls.VersionTLS13, nil
+	default:
+		return 0, fmt.Errorf("unknown TLS minimum version %q", version)
+	}
+}
+
+func runtimeCipherSuites() map[uint16]struct{} {
+	suites := make(map[uint16]struct{})
+	for _, suite := range append(tls.CipherSuites(), tls.InsecureCipherSuites()...) {
+		suites[suite.ID] = struct{}{}
+	}
+	return suites
 }
 
 // SetupWatcher registers a SecurityProfileWatcher with the manager that triggers
