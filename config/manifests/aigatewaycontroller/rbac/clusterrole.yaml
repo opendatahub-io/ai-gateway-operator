@@ -65,7 +65,7 @@ rules:
   resources: ["externalproviders", "externalmodels"]
   verbs: ["get", "list", "watch", "create", "update"]
 - apiGroups: ["inference.opendatahub.io"]
-  resources: ["externalmodels"]
+  resources: ["externalproviders", "externalmodels"]
   verbs: ["patch"]
 - apiGroups: ["inference.opendatahub.io"]
   resources: ["externalproviders/status", "externalmodels/status"]
@@ -79,12 +79,22 @@ rules:
 - apiGroups: ["gateway.networking.k8s.io"]
   resources: ["httproutes"]
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["gateway.networking.k8s.io"]
+  resources: ["gateways"]
+  verbs: ["get", "list", "watch"]
 - apiGroups: ["networking.istio.io"]
   resources: ["serviceentries"]
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 # destinationrules already covered above (full CRUD, needed for the
 # vendored overlay's own DestinationRule), so no separate mirror rule is
 # needed here.
+# Authenticated metrics scraping (filters.WithAuthenticationAndAuthorization).
+- apiGroups: ["authentication.k8s.io"]
+  resources: ["tokenreviews"]
+  verbs: ["create"]
+- apiGroups: ["authorization.k8s.io"]
+  resources: ["subjectaccessreviews"]
+  verbs: ["create"]
 # Leader election (--leader-elect) and event recording.
 - apiGroups: ["coordination.k8s.io"]
   resources: ["leases"]

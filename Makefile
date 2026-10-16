@@ -162,7 +162,12 @@ deploy: manifests ## Deploy controller to the K8s cluster via kustomize (config/
 		tmp="$$(mktemp -d)"; trap 'rm -rf "$$tmp"' EXIT; \
 		cp -r config "$$tmp/config"; \
 		( cd "$$tmp/config/manager" && $(KUSTOMIZE) edit set image controller="$$resolved_img" ); \
-		$(KUSTOMIZE) build "$$tmp/config/default" | $(KUBECTL) apply -f -
+		$(KUSTOMIZE) build "$$tmp/config/default" | $(KUBECTL) apply -f -; \
+		if [ -n "$${RELATED_IMAGE_ODH_AI_GATEWAY_CONTROLLER_IMAGE:-}" ]; then \
+			echo "Setting RELATED_IMAGE_ODH_AI_GATEWAY_CONTROLLER_IMAGE=$${RELATED_IMAGE_ODH_AI_GATEWAY_CONTROLLER_IMAGE}"; \
+			$(KUBECTL) -n $(OPERATOR_NAMESPACE) set env deployment/ai-gateway-operator \
+				RELATED_IMAGE_ODH_AI_GATEWAY_CONTROLLER_IMAGE="$${RELATED_IMAGE_ODH_AI_GATEWAY_CONTROLLER_IMAGE}"; \
+		fi
 	$(KUBECTL) -n $(OPERATOR_NAMESPACE) rollout status deploy/ai-gateway-operator --timeout=5m
 
 .PHONY: undeploy
