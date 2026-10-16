@@ -54,6 +54,7 @@ rules:
   - secrets
   verbs:
   - create
+  - delete
   - get
   - list
   - patch
@@ -701,6 +702,14 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - route.openshift.io
+  resources:
+  - routes
+  verbs:
+  - get
+  - list
+  - watch
 - apiGroups:
   - security.openshift.io
   resourceNames:
