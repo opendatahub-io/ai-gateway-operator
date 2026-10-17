@@ -118,6 +118,7 @@ rules:
   - gridnetworks.grid.praxis.fast
   - gridsites.grid.praxis.fast
   - inferenceproviders.grid.praxis.fast
+  - siteinvites.grid.praxis.fast
   resources:
   - customresourcedefinitions
   verbs:

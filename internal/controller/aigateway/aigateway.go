@@ -126,6 +126,7 @@ var aiGridCRDNames = []string{
 	"gridnetworks" + aiGridCRDSuffix,
 	"gridsites" + aiGridCRDSuffix,
 	"inferenceproviders" + aiGridCRDSuffix,
+	"siteinvites" + aiGridCRDSuffix,
 }
 
 // Module holds process-lifetime state for the aigateway controller.
