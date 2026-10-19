@@ -1,0 +1,36 @@
+# xKS metrics ingress isolation for ai-gateway-controller pods.
+#
+# ServiceMonitor/PodMonitor resources are excluded on xKS, but HTTPS metrics
+# (8443) and kubelet probes (8081) still need port-scoped ingress policy.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ai-gateway-controller-allow-metrics-traffic
+  labels:
+    app.kubernetes.io/name: ai-gateway-controller
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/part-of: aigateway
+spec:
+  podSelector:
+    matchLabels:
+      control-plane: ai-gateway-controller
+  policyTypes:
+    - Ingress
+  ingress:
+    # HTTPS metrics scraping from common Prometheus / OTel collector pods.
+    - from:
+        - namespaceSelector: {}
+          podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - prometheus
+                  - opentelemetry-collector
+      ports:
+        - protocol: TCP
+          port: 8443
+    # Kubelet liveness/readiness probes (port 8081).
+    - ports:
+        - protocol: TCP
+          port: 8081

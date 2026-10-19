@@ -172,10 +172,15 @@ func NewModule(cfg *moduleconfig.Config) (*Module, error) {
 		return nil, fmt.Errorf("failed to update images on path %s: %w", maasMI, err)
 	}
 
+	aiGatewayControllerSourcePath := "default"
+	if cfg.PlatformType == string(cluster.XKS) {
+		aiGatewayControllerSourcePath = "overlays/xks"
+	}
+
 	aiGatewayControllerMI := odhtypes.ManifestInfo{
 		Path:       cfg.ManifestsPath,
 		ContextDir: "aigatewaycontroller",
-		SourcePath: "default",
+		SourcePath: aiGatewayControllerSourcePath,
 	}
 
 	if err := odhdeploy.ApplyParams(aiGatewayControllerMI.String(), "params.env", aiGatewayControllerImageParamMap, nil); err != nil {
