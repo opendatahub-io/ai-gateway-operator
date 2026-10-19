@@ -643,6 +643,37 @@ func TestReportSubModuleStatus_AIGridManaged(t *testing.T) {
 	}
 }
 
+// TestReportSubModuleStatus_AIGridNamespace checks readiness reads the grid operator from
+// its own namespace, not the applications namespace.
+func TestReportSubModuleStatus_AIGridNamespace(t *testing.T) {
+	tests := []struct {
+		name   string
+		ns     string
+		status metav1.ConditionStatus
+	}{
+		{"grid namespace", odhGridNS, metav1.ConditionTrue},
+		{"applications namespace", odhApplicationsNS, metav1.ConditionFalse},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
+
+			m := newTestModuleWithNamespace(t, odhApplicationsNS)
+			obj := newTestAIGateway()
+			obj.Spec.AIGrid.ManagementState = managedState
+			objs := make([]client.Object, 0, 1+len(aiGridCRDNames))
+			objs = append(objs, aiGridOperatorDeployment(tt.ns, true))
+			for _, name := range aiGridCRDNames {
+				objs = append(objs, aiGridCRD(name, true))
+			}
+			rr := newSubModuleRR(t, obj, objs...)
+
+			g.Expect(m.reportSubModuleStatus(context.Background(), rr)).To(Succeed())
+			g.Expect(rr.Conditions.GetCondition(status.ConditionAIGridReady).Status).To(Equal(tt.status))
+		})
+	}
+}
+
 func TestReportSubModuleStatus_AIGridRemoved(t *testing.T) {
 	g := NewWithT(t)
 

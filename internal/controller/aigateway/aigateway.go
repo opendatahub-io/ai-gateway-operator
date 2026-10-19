@@ -17,7 +17,9 @@ limitations under the License.
 package aigateway
 
 import (
+	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -57,6 +59,8 @@ const (
 	rhoaiInfrastructureNS = "redhat-ai-gateway-infra"
 	odhApplicationsNS     = "opendatahub"
 	odhInfrastructureNS   = "odh-ai-gateway-infra"
+	rhoaiGridNS           = "redhat-ai-grid"
+	odhGridNS             = "odh-ai-grid"
 
 	// Platform upgrade handshake: the platform operator maintains
 	// odh-<modulename>-config with data.platformVersion. After upgrade work
@@ -86,6 +90,19 @@ func deriveInfrastructureNamespace(appNs string) string {
 		return rhoaiInfrastructureNS
 	case odhApplicationsNS:
 		return odhInfrastructureNS
+	default:
+		return appNs
+	}
+}
+
+// deriveGridNamespace maps the applications namespace to the grid operator's own
+// namespace, so it shares Secrets with no other controller.
+func deriveGridNamespace(appNs string) string {
+	switch appNs {
+	case rhoaiApplicationsNS:
+		return rhoaiGridNS
+	case odhApplicationsNS:
+		return odhGridNS
 	default:
 		return appNs
 	}
@@ -189,16 +206,27 @@ func NewModule(cfg *moduleconfig.Config) (*Module, error) {
 		SourcePath: "crds",
 	}
 
-	// The grid operator, vendored as its generated platform base: the image comes
-	// through params.env and the namespace from the render.
+	// The grid operator, vendored as its generated platform base, in its own namespace.
+	// The render's namespace override does not reach the ServiceMonitor's selector or TLS
+	// server name, so params.env carries the namespace too.
 	aiGridOperatorMI := odhtypes.ManifestInfo{
 		Path:       cfg.ManifestsPath,
 		ContextDir: "aigrid",
 		SourcePath: "overlays/openshift",
 	}
+	gridNs := deriveGridNamespace(cfg.ApplicationsNamespace)
 
-	if err := odhdeploy.ApplyParams(aiGridOperatorMI.String(), "params.env", aiGridOperatorImageParamMap, nil); err != nil {
+	// String() appends the namespace, so the params path is taken before it is set.
+	if err := odhdeploy.ApplyParams(
+		aiGridOperatorMI.String(),
+		"params.env",
+		aiGridOperatorImageParamMap,
+		map[string]string{"namespace": gridNs},
+	); err != nil {
 		return nil, fmt.Errorf("failed to update images on path %s: %w", aiGridOperatorMI, err)
+	}
+	if gridNs != cfg.ApplicationsNamespace {
+		aiGridOperatorMI.Namespace = gridNs
 	}
 
 	return &Module{
@@ -234,6 +262,14 @@ func (m *Module) initialize(ctx context.Context, rr *odhtypes.ReconciliationRequ
 
 	// CRDs first, so the operator finds its kinds established.
 	if obj.Spec.AIGrid.ManagementState == managedState {
+		if gridNs := m.aiGridOperatorManifestInfo.Namespace; gridNs != "" {
+			if rr.Client == nil {
+				return errors.New("reconciliation client is nil")
+			}
+			if err := ensureNamespace(ctx, rr.Client, gridNs); err != nil {
+				return fmt.Errorf("ensuring grid namespace %s: %w", gridNs, err)
+			}
+		}
 		rr.Manifests = append(rr.Manifests, m.aiGridManifestInfo, m.aiGridOperatorManifestInfo)
 	}
 
@@ -594,7 +630,7 @@ func (m *Module) reportSubModuleStatus(ctx context.Context, rr *odhtypes.Reconci
 		if err != nil {
 			return fmt.Errorf("checking AI Grid CRDs: %w", err)
 		}
-		operatorReady, err := deploymentAvailable(ctx, rr, aiGridOperatorDeploymentName, ns)
+		operatorReady, err := deploymentAvailable(ctx, rr, aiGridOperatorDeploymentName, cmp.Or(m.aiGridOperatorManifestInfo.Namespace, ns))
 		if err != nil {
 			return fmt.Errorf("checking %s Deployment: %w", aiGridOperatorDeploymentName, err)
 		}
