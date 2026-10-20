@@ -1,0 +1,102 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../rbac
+  - ../../manager
+  - cert-manager/
+  - networkpolicy.yaml
+  # ServiceMonitor excluded on xKS (OpenShift-specific CRD/CA bundle)
+
+labels:
+  - pairs:
+      app.kubernetes.io/name: ai-gateway-controller
+      app.kubernetes.io/component: ai-gateway-controller
+      app.kubernetes.io/part-of: aigateway
+
+configMapGenerator:
+  - name: ai-gateway-controller-parameters
+    envs:
+      - params.env
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+replacements:
+  - source:
+      kind: ConfigMap
+      name: ai-gateway-controller-parameters
+      fieldPath: data.ai-gateway-controller-image
+    targets:
+      - select:
+          kind: Deployment
+          name: ai-gateway-controller
+        fieldPaths:
+          - spec.template.spec.containers.[name=manager].image
+  - source:
+      kind: ConfigMap
+      name: ai-gateway-controller-parameters
+      fieldPath: data.namespace
+    targets:
+      - select:
+          kind: Deployment
+          name: ai-gateway-controller
+        fieldPaths:
+          - metadata.namespace
+      - select:
+          kind: Service
+          name: ai-gateway-controller-metrics
+        fieldPaths:
+          - metadata.namespace
+      - select:
+          kind: ServiceAccount
+          name: ai-gateway-controller
+        fieldPaths:
+          - metadata.namespace
+      - select:
+          kind: ClusterRoleBinding
+          name: ai-gateway-controller-rolebinding
+        fieldPaths:
+          - subjects.0.namespace
+
+patches:
+  # cert-manager provisions metrics TLS on xKS; OpenShift service-ca is unavailable.
+  - target:
+      kind: Service
+      name: ai-gateway-controller-metrics
+    patch: |
+      - op: remove
+        path: /metadata/annotations/service.beta.openshift.io~1serving-cert-secret-name
+
+vars:
+  - name: NAMESPACE
+    objref:
+      apiVersion: v1
+      kind: ConfigMap
+      name: ai-gateway-controller-parameters
+    fieldref:
+      fieldpath: data.namespace
+  - name: ISSUER_REF_NAME
+    objref:
+      apiVersion: v1
+      kind: ConfigMap
+      name: ai-gateway-controller-parameters
+    fieldref:
+      fieldpath: data.ISSUER_REF_NAME
+  - name: ISSUER_REF_KIND
+    objref:
+      apiVersion: v1
+      kind: ConfigMap
+      name: ai-gateway-controller-parameters
+    fieldref:
+      fieldpath: data.ISSUER_REF_KIND
+  - name: ISSUER_REF_GROUP
+    objref:
+      apiVersion: v1
+      kind: ConfigMap
+      name: ai-gateway-controller-parameters
+    fieldref:
+      fieldpath: data.ISSUER_REF_GROUP
+
+configurations:
+  - params.yaml

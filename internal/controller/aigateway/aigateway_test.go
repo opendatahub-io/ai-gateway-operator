@@ -137,7 +137,7 @@ func TestNewModule(t *testing.T) {
 	g.Expect(m.maasManifestInfo.ContextDir).To(Equal("maascontroller"))
 	g.Expect(m.maasManifestInfo.SourcePath).To(Equal("default"))
 	g.Expect(m.aiGatewayControllerManifestInfo.ContextDir).To(Equal("aigatewaycontroller"))
-	g.Expect(m.aiGatewayControllerManifestInfo.SourcePath).To(Equal("default"))
+	g.Expect(m.aiGatewayControllerManifestInfo.SourcePath).To(Equal("overlays/xks"))
 }
 
 func TestNewModuleXKS(t *testing.T) {
@@ -155,7 +155,7 @@ func TestNewModuleXKS(t *testing.T) {
 	g.Expect(m.maasManifestInfo.SourcePath).To(Equal("overlays/xks"))
 	g.Expect(m.batchGatewayManifestInfo.SourcePath).To(Equal("base"))
 	// ai-gateway-controller's SourcePath is not platform-gated (no XKS-specific overlay).
-	g.Expect(m.aiGatewayControllerManifestInfo.SourcePath).To(Equal("default"))
+	g.Expect(m.aiGatewayControllerManifestInfo.SourcePath).To(Equal("overlays/xks"))
 }
 
 func TestNewModuleInvalidVersion(t *testing.T) {

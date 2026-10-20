@@ -1,0 +1,16 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: ai-gateway-controller-metrics
+  namespace: $(NAMESPACE)
+spec:
+  secretName: ai-gateway-controller-metrics-tls
+  issuerRef:
+    name: $(ISSUER_REF_NAME)
+    kind: $(ISSUER_REF_KIND)
+    group: $(ISSUER_REF_GROUP)
+  duration: 2160h
+  renewBefore: 360h
+  dnsNames:
+    - ai-gateway-controller-metrics.$(NAMESPACE).svc
+    - ai-gateway-controller-metrics.$(NAMESPACE).svc.cluster.local
