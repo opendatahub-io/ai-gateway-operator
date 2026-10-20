@@ -168,6 +168,11 @@ func runTestMain(m *testing.M) int {
 		return 1
 	}
 
+	if err := syncMaaSWebhookCABundle(ctx, k8sClient, operatorNamespace, setupTimeout); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to configure MaaS webhook CA bundle: %v\n", err)
+		return 1
+	}
+
 	if err := pollFor(ctx, "module CR ready", setupTimeout, func() (bool, error) {
 		fresh := module.DeepCopy()
 		if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(module), fresh); err != nil {

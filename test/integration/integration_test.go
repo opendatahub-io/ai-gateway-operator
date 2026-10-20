@@ -836,6 +836,9 @@ func installMaaSCRDStubs(ctx context.Context, cli client.Client) error {
 	if err := ensureMaaSTLSSecret(ctx, cli, ns, "maas-controller-metrics-tls", "maas-controller-metrics"); err != nil {
 		return fmt.Errorf("creating maas metrics cert secret: %w", err)
 	}
+	if err := ensureMaaSTLSSecret(ctx, cli, ns, "ai-gateway-controller-metrics-tls", "ai-gateway-controller-metrics"); err != nil {
+		return fmt.Errorf("creating ai-gateway-controller metrics cert secret: %w", err)
+	}
 	crds := []apiextensionsv1.CustomResourceDefinition{
 		// Prometheus Operator — maas-controller bundle applies PodMonitor/ServiceMonitor.
 		maasStubCRD("podmonitors.monitoring.coreos.com", "monitoring.coreos.com", "v1",
@@ -959,7 +962,7 @@ func removeMaaSCRDStubs(ctx context.Context, cli client.Client) error {
 	ns := support.IntegrationTestNamespace()
 	var errs []string
 
-	for _, secretName := range []string{"maas-controller-webhook-cert", "maas-controller-metrics-tls"} {
+	for _, secretName := range []string{"maas-controller-webhook-cert", "maas-controller-metrics-tls", "ai-gateway-controller-metrics-tls"} {
 		s := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: ns},
 		}

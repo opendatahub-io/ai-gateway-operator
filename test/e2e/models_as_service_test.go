@@ -81,6 +81,9 @@ func maasPrerequisites(ctx context.Context, k8sClient client.Client, ns string) 
 	if err := ensureTLSSecret(ctx, k8sClient, ns, "maas-controller-metrics-tls", "maas-controller-metrics"); err != nil {
 		return fmt.Errorf("creating metrics cert secret: %w", err)
 	}
+	if err := ensureTLSSecret(ctx, k8sClient, ns, "ai-gateway-controller-metrics-tls", "ai-gateway-controller-metrics"); err != nil {
+		return fmt.Errorf("creating ai-gateway-controller metrics cert secret: %w", err)
+	}
 
 	// 3. Optional CRD stubs — maas-controller watches authpolicies and
 	//    tokenratelimitpolicies (kuadrant.io) and llminferenceservices
@@ -108,9 +111,9 @@ func ensurePrometheusCRDs(ctx context.Context, k8sClient client.Client) error {
 	return applyCRDs(ctx, k8sClient, crds)
 }
 
-// ensureOptionalCRDStubs creates minimal stubs for CRDs that maas-controller
-// watches optionally. Without them controller-runtime times out syncing the
-// informer cache and crashes the pod.
+// ensureOptionalCRDStubs creates minimal stubs for CRDs watched by the MaaS
+// and AI Gateway controllers. Without them controller-runtime cannot start
+// informers or indexes and crashes the pod.
 func ensureOptionalCRDStubs(ctx context.Context, k8sClient client.Client) error {
 	crds := []apiextensionsv1.CustomResourceDefinition{
 		// Versions must match what maas-controller registers at runtime.
@@ -121,6 +124,8 @@ func ensureOptionalCRDStubs(ctx context.Context, k8sClient client.Client) error 
 			"TokenRateLimitPolicy", "tokenratelimitpolicies", "tokenratelimitpolicy", apiextensionsv1.NamespaceScoped),
 		minimalCRD("llminferenceservices.serving.kserve.io", "serving.kserve.io", "v1alpha2",
 			"LLMInferenceService", "llminferenceservices", "llminferenceservice", apiextensionsv1.NamespaceScoped),
+		minimalCRD("aiguardrails.aigateway.opendatahub.io", "aigateway.opendatahub.io", "v1alpha1",
+			"AIGuardrail", "aiguardrails", "aiguardrail", apiextensionsv1.NamespaceScoped),
 		// Gateway API CRDs — maas-controller watches HTTPRoute and Gateway resources.
 		// The gateway.networking.k8s.io group is a protected k8s API group and
 		// requires the api-approved.kubernetes.io annotation to be accepted.
@@ -131,13 +136,6 @@ func ensureOptionalCRDStubs(ctx context.Context, k8sClient client.Client) error 
 	}
 	return applyCRDs(ctx, k8sClient, crds)
 }
-
-// e2eManagedLabel is added to every CRD created by the test setup so that
-// cleanup can distinguish test-owned stubs from pre-existing cluster CRDs
-// (e.g. Prometheus CRDs on ROSA/OpenShift). Only CRDs carrying this label
-// are deleted during teardown.
-const e2eManagedLabel = "e2e.ai-gateway-operator.io/managed-by"
-const e2eManagedValue = "maas-e2e-setup"
 
 // boolPtr returns a pointer to the given bool value.
 func boolPtr(b bool) *bool { return &b }
@@ -264,9 +262,9 @@ func generateSelfSignedCert(ns, serviceName string) ([]byte, []byte, error) {
 	svc := fmt.Sprintf("%s.%s.svc", serviceName, ns)
 	now := time.Now()
 	template := &x509.Certificate{
-		SerialNumber: serial,
-		Subject:      pkix.Name{CommonName: svc},
-		DNSNames:     []string{svc, svc + ".cluster.local"},
+		SerialNumber:          serial,
+		Subject:               pkix.Name{CommonName: svc},
+		DNSNames:              []string{svc, svc + ".cluster.local"},
 		NotBefore:             now.Add(-1 * time.Minute), // 1 min buffer for clock skew
 		NotAfter:              now.Add(24 * time.Hour),
 		IsCA:                  true,
@@ -661,6 +659,7 @@ func maasCleanup(ctx context.Context, k8sClient client.Client, ns string) {
 		"authpolicies.kuadrant.io",
 		"tokenratelimitpolicies.kuadrant.io",
 		"llminferenceservices.serving.kserve.io",
+		"aiguardrails.aigateway.opendatahub.io",
 		"httproutes.gateway.networking.k8s.io",
 		"gateways.gateway.networking.k8s.io",
 	}
@@ -680,7 +679,7 @@ func maasCleanup(ctx context.Context, k8sClient client.Client, ns string) {
 		}
 	}
 
-	for _, secretName := range []string{"maas-controller-webhook-cert", "maas-controller-metrics-tls"} {
+	for _, secretName := range []string{"maas-controller-webhook-cert", "maas-controller-metrics-tls", "ai-gateway-controller-metrics-tls"} {
 		s := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: ns},
 		}
