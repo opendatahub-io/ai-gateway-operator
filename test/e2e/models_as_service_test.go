@@ -108,9 +108,9 @@ func ensurePrometheusCRDs(ctx context.Context, k8sClient client.Client) error {
 	return applyCRDs(ctx, k8sClient, crds)
 }
 
-// ensureOptionalCRDStubs creates minimal stubs for CRDs that maas-controller
-// watches optionally. Without them controller-runtime times out syncing the
-// informer cache and crashes the pod.
+// ensureOptionalCRDStubs creates minimal stubs for CRDs watched by the MaaS
+// and AI Gateway controllers. Without them controller-runtime cannot start
+// informers or indexes and crashes the pod.
 func ensureOptionalCRDStubs(ctx context.Context, k8sClient client.Client) error {
 	crds := []apiextensionsv1.CustomResourceDefinition{
 		// Versions must match what maas-controller registers at runtime.
@@ -121,6 +121,8 @@ func ensureOptionalCRDStubs(ctx context.Context, k8sClient client.Client) error 
 			"TokenRateLimitPolicy", "tokenratelimitpolicies", "tokenratelimitpolicy", apiextensionsv1.NamespaceScoped),
 		minimalCRD("llminferenceservices.serving.kserve.io", "serving.kserve.io", "v1alpha2",
 			"LLMInferenceService", "llminferenceservices", "llminferenceservice", apiextensionsv1.NamespaceScoped),
+		minimalCRD("aiguardrails.aigateway.opendatahub.io", "aigateway.opendatahub.io", "v1alpha1",
+			"AIGuardrail", "aiguardrails", "aiguardrail", apiextensionsv1.NamespaceScoped),
 		// Gateway API CRDs — maas-controller watches HTTPRoute and Gateway resources.
 		// The gateway.networking.k8s.io group is a protected k8s API group and
 		// requires the api-approved.kubernetes.io annotation to be accepted.
@@ -249,6 +251,37 @@ func ensureTLSSecret(ctx context.Context, k8sClient client.Client, ns, secretNam
 	return k8sClient.Create(ctx, secret)
 }
 
+// syncMaaSWebhookCABundle makes Kind's API server trust the self-signed
+// certificate mounted by the MaaS webhook. In production, this is injected by
+// cert-manager; Kind has no cert-manager installation.
+func syncMaaSWebhookCABundle(ctx context.Context) error {
+	secret := &corev1.Secret{}
+	secretKey := client.ObjectKey{Name: "maas-controller-webhook-cert", Namespace: operatorNamespace}
+	if err := k8sClient.Get(ctx, secretKey, secret); err != nil {
+		return fmt.Errorf("getting MaaS webhook certificate secret: %w", err)
+	}
+
+	caBundle := secret.Data["tls.crt"]
+	if len(caBundle) == 0 {
+		return fmt.Errorf("MaaS webhook certificate secret has no tls.crt")
+	}
+
+	deadline := time.Now().Add(setupTimeout)
+	webhookKey := client.ObjectKey{Name: "maas-validating-webhook-configuration"}
+	for time.Now().Before(deadline) {
+		err := support.SetValidatingWebhookCABundle(ctx, k8sClient, webhookKey, caBundle)
+		if err == nil {
+			return nil
+		}
+		if !k8serr.IsNotFound(err) {
+			return err
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	return fmt.Errorf("MaaS validating webhook configuration was not created within %v", setupTimeout)
+}
+
 func generateSelfSignedCert(ns, serviceName string) ([]byte, []byte, error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -264,9 +297,9 @@ func generateSelfSignedCert(ns, serviceName string) ([]byte, []byte, error) {
 	svc := fmt.Sprintf("%s.%s.svc", serviceName, ns)
 	now := time.Now()
 	template := &x509.Certificate{
-		SerialNumber: serial,
-		Subject:      pkix.Name{CommonName: svc},
-		DNSNames:     []string{svc, svc + ".cluster.local"},
+		SerialNumber:          serial,
+		Subject:               pkix.Name{CommonName: svc},
+		DNSNames:              []string{svc, svc + ".cluster.local"},
 		NotBefore:             now.Add(-1 * time.Minute), // 1 min buffer for clock skew
 		NotAfter:              now.Add(24 * time.Hour),
 		IsCA:                  true,
@@ -661,6 +694,7 @@ func maasCleanup(ctx context.Context, k8sClient client.Client, ns string) {
 		"authpolicies.kuadrant.io",
 		"tokenratelimitpolicies.kuadrant.io",
 		"llminferenceservices.serving.kserve.io",
+		"aiguardrails.aigateway.opendatahub.io",
 		"httproutes.gateway.networking.k8s.io",
 		"gateways.gateway.networking.k8s.io",
 	}
