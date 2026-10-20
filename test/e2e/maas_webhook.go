@@ -7,6 +7,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/opendatahub-io/ai-gateway-operator/test/support"
@@ -32,17 +33,12 @@ func syncMaaSWebhookCABundle(ctx context.Context, cli client.Client, namespace s
 	if len(caBundle) == 0 {
 		return fmt.Errorf("MaaS webhook certificate secret has no tls.crt")
 	}
-	deadline := time.Now().Add(timeout)
 	webhookKey := client.ObjectKey{Name: "maas-validating-webhook-configuration"}
-	for time.Now().Before(deadline) {
+	return wait.PollUntilContextTimeout(ctx, 100*time.Millisecond, timeout, true, func(ctx context.Context) (bool, error) {
 		err := support.SetValidatingWebhookCABundle(ctx, cli, webhookKey, caBundle)
-		if err == nil {
-			return nil
+		if k8serr.IsNotFound(err) {
+			return false, nil
 		}
-		if !k8serr.IsNotFound(err) {
-			return err
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	return fmt.Errorf("MaaS validating webhook configuration was not created within %v", timeout)
+		return err == nil, err
+	})
 }
