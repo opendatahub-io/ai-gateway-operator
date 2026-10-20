@@ -322,6 +322,15 @@ func (m *Module) initialize(ctx context.Context, rr *odhtypes.ReconciliationRequ
 		// serving traffic MaaS's teardown depends on). No dedicated
 		// ManagementState field for it yet — see DESIGN discussion.
 		rr.Manifests = append(rr.Manifests, m.aiGatewayControllerManifestInfo)
+
+		if err := odhdeploy.ApplyParams(
+			m.aiGatewayControllerManifestInfo.String(),
+			"params.env",
+			nil,
+			map[string]string{"namespace": m.cfg.ApplicationsNamespace},
+		); err != nil {
+			return fmt.Errorf("failed to update ai-gateway-controller params.env: %w", err)
+		}
 	}
 
 	return nil

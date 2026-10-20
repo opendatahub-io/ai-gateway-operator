@@ -154,7 +154,7 @@ func TestNewModuleXKS(t *testing.T) {
 	g.Expect(m.maasManifestInfo.ContextDir).To(Equal("maascontroller"))
 	g.Expect(m.maasManifestInfo.SourcePath).To(Equal("overlays/xks"))
 	g.Expect(m.batchGatewayManifestInfo.SourcePath).To(Equal("base"))
-	// ai-gateway-controller's SourcePath is not platform-gated (no XKS-specific overlay).
+	// ai-gateway-controller has no XKS-specific overlay yet (unlike maascontroller).
 	g.Expect(m.aiGatewayControllerManifestInfo.SourcePath).To(Equal("default"))
 }
 
