@@ -73,7 +73,7 @@ deps: ## Tidy and verify Go module dependencies.
 
 .PHONY: test
 test: manifests generate fmt vet ## Run unit tests.
-	go test -ldflags "$(LDFLAGS)" $$(go list ./... | grep -v /e2e | grep -v /integration) -coverprofile cover.out
+	go test -ldflags "$(LDFLAGS)" $$(go list ./... | grep -v /integration) -coverprofile cover.out
 
 .PHONY: test-integration-run
 test-integration-run: ## Run integration tests only (cluster must be prepared).

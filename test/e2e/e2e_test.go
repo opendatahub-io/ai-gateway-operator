@@ -168,7 +168,7 @@ func runTestMain(m *testing.M) int {
 		return 1
 	}
 
-	if err := syncMaaSWebhookCABundle(ctx); err != nil {
+	if err := syncMaaSWebhookCABundle(ctx, k8sClient, operatorNamespace, setupTimeout); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to configure MaaS webhook CA bundle: %v\n", err)
 		return 1
 	}

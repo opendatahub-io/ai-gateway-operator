@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -16,18 +17,20 @@ func SetValidatingWebhookCABundle(
 	key client.ObjectKey,
 	caBundle []byte,
 ) error {
-	configuration := &admissionregistrationv1.ValidatingWebhookConfiguration{}
-	if err := cli.Get(ctx, key, configuration); err != nil {
-		return fmt.Errorf("getting ValidatingWebhookConfiguration %s: %w", key.Name, err)
-	}
+	return retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+		configuration := &admissionregistrationv1.ValidatingWebhookConfiguration{}
+		if err := cli.Get(ctx, key, configuration); err != nil {
+			return fmt.Errorf("getting ValidatingWebhookConfiguration %s: %w", key.Name, err)
+		}
 
-	for i := range configuration.Webhooks {
-		configuration.Webhooks[i].ClientConfig.CABundle = caBundle
-	}
+		for i := range configuration.Webhooks {
+			configuration.Webhooks[i].ClientConfig.CABundle = caBundle
+		}
 
-	if err := cli.Update(ctx, configuration); err != nil {
-		return fmt.Errorf("updating ValidatingWebhookConfiguration %s: %w", key.Name, err)
-	}
+		if err := cli.Update(ctx, configuration); err != nil {
+			return fmt.Errorf("updating ValidatingWebhookConfiguration %s: %w", key.Name, err)
+		}
 
-	return nil
+		return nil
+	})
 }

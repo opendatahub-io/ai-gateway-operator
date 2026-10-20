@@ -134,13 +134,6 @@ func ensureOptionalCRDStubs(ctx context.Context, k8sClient client.Client) error 
 	return applyCRDs(ctx, k8sClient, crds)
 }
 
-// e2eManagedLabel is added to every CRD created by the test setup so that
-// cleanup can distinguish test-owned stubs from pre-existing cluster CRDs
-// (e.g. Prometheus CRDs on ROSA/OpenShift). Only CRDs carrying this label
-// are deleted during teardown.
-const e2eManagedLabel = "e2e.ai-gateway-operator.io/managed-by"
-const e2eManagedValue = "maas-e2e-setup"
-
 // boolPtr returns a pointer to the given bool value.
 func boolPtr(b bool) *bool { return &b }
 
@@ -249,37 +242,6 @@ func ensureTLSSecret(ctx context.Context, k8sClient client.Client, ns, secretNam
 		},
 	}
 	return k8sClient.Create(ctx, secret)
-}
-
-// syncMaaSWebhookCABundle makes Kind's API server trust the self-signed
-// certificate mounted by the MaaS webhook. In production, this is injected by
-// cert-manager; Kind has no cert-manager installation.
-func syncMaaSWebhookCABundle(ctx context.Context) error {
-	secret := &corev1.Secret{}
-	secretKey := client.ObjectKey{Name: "maas-controller-webhook-cert", Namespace: operatorNamespace}
-	if err := k8sClient.Get(ctx, secretKey, secret); err != nil {
-		return fmt.Errorf("getting MaaS webhook certificate secret: %w", err)
-	}
-
-	caBundle := secret.Data["tls.crt"]
-	if len(caBundle) == 0 {
-		return fmt.Errorf("MaaS webhook certificate secret has no tls.crt")
-	}
-
-	deadline := time.Now().Add(setupTimeout)
-	webhookKey := client.ObjectKey{Name: "maas-validating-webhook-configuration"}
-	for time.Now().Before(deadline) {
-		err := support.SetValidatingWebhookCABundle(ctx, k8sClient, webhookKey, caBundle)
-		if err == nil {
-			return nil
-		}
-		if !k8serr.IsNotFound(err) {
-			return err
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-
-	return fmt.Errorf("MaaS validating webhook configuration was not created within %v", setupTimeout)
 }
 
 func generateSelfSignedCert(ns, serviceName string) ([]byte, []byte, error) {
