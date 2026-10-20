@@ -446,8 +446,8 @@ func (rt *aiGatewayTest) testReleasesPopulated(t *testing.T) {
 
 	g.Eventually(k.Get(rt.module)).WithContext(ctx).WithTimeout(timeout).WithPolling(interval).Should(And(
 		jq.Match(`.status.releases | length > 0`),
-		jq.Match(`.status.releases[0].name == "AI Gateway Operator"`),
-		jq.Match(`.status.releases[0].version != ""`),
+		jq.Match(`.status.releases | any(.name == "llm-d Batch Gateway")`),
+		jq.Match(`.status.releases | all(.version != "")`),
 	))
 }
 

@@ -23,6 +23,7 @@ import (
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -35,6 +36,7 @@ import (
 	moduleconfig "github.com/opendatahub-io/ai-gateway-operator/pkg/config"
 	"github.com/opendatahub-io/ai-gateway-operator/pkg/controller/status"
 	"github.com/opendatahub-io/opendatahub-operator/v2/api/common"
+	"github.com/opendatahub-io/opendatahub-operator/v2/pkg/cluster/gvk"
 	"github.com/opendatahub-io/opendatahub-operator/v2/pkg/controller/actions/deploy"
 	"github.com/opendatahub-io/opendatahub-operator/v2/pkg/controller/actions/gc"
 	"github.com/opendatahub-io/opendatahub-operator/v2/pkg/controller/actions/render/kustomize"
@@ -55,7 +57,7 @@ import (
 // Resources deployed by the batch-gateway operator kustomize manifests
 // +kubebuilder:rbac:groups=apps,resources=deployments;statefulsets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=services;serviceaccounts;configmaps,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups="",resources=secrets,verbs=create;get;list;patch;watch
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=create;delete;get;list;patch;watch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles;clusterrolebindings,verbs=create;list;watch
@@ -87,7 +89,7 @@ import (
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=create;get;list;patch;update;watch
 
 // AI Grid CRDs. No delete: they are kept when aiGrid is Removed.
-// +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,resourceNames=gridnetworks.grid.praxis.fast;gridsites.grid.praxis.fast;inferenceproviders.grid.praxis.fast;agenttoolproviders.grid.praxis.fast,verbs=get;update;patch
+// +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,resourceNames=gridnetworks.grid.praxis.fast;gridsites.grid.praxis.fast;inferenceproviders.grid.praxis.fast;agenttoolproviders.grid.praxis.fast;siteinvites.grid.praxis.fast,verbs=get;update;patch
 
 // AI Grid operator - permissions to deploy its vendored manifests
 // (config/manifests/aigrid/overlays/openshift, fetched by make get-manifests) and every rule
@@ -147,6 +149,7 @@ import (
 // +kubebuilder:rbac:groups=opentelemetry.io,resources=opentelemetrycollectors,verbs=create;delete;get;list;patch;watch
 // +kubebuilder:rbac:groups=operator.authorino.kuadrant.io,resources=authorinos,verbs=get;list;watch
 // +kubebuilder:rbac:groups=perses.dev,resources=persesdashboards;persesdatasources,verbs=create;delete;get;list;patch;watch
+// +kubebuilder:rbac:groups=route.openshift.io,resources=routes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterrolebindings;clusterroles,verbs=get;list;watch;patch;update;delete
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceservices,verbs=get;list;watch
 // +kubebuilder:rbac:groups=telemetry.istio.io,resources=telemetries,verbs=create;delete;get;list;patch;watch
@@ -176,6 +179,8 @@ func NewReconciler(
 		Owns(&corev1.Service{}).
 		Owns(&apiextensionsv1.CustomResourceDefinition{}).
 		Owns(&admissionregistrationv1.ValidatingWebhookConfiguration{}).
+		Owns(&networkingv1.NetworkPolicy{}).
+		OwnsGVK(gvk.CoreosServiceMonitor, reconciler.Dynamic(reconciler.CrdExists(gvk.CoreosServiceMonitor))).
 		Owns(&appsv1.Deployment{}, reconciler.WithPredicates(predicates.DefaultDeploymentPredicate)).
 		// Watch the platform-managed ConfigMap so changes to platformVersion trigger
 		// a reconcile and status.releases[platform].version stays current.
@@ -226,6 +231,7 @@ func NewReconciler(
 			kustomize.WithLabel(labels.ODH.Component(componentName), labels.True),
 			kustomize.WithLabel(labels.K8SCommon.PartOf, componentName),
 		)).
+		WithAction(m.renderAIGridOperator).
 		WithAction(m.annotateResource).
 		WithAction(m.migrateSelector).
 		WithAction(deploy.NewAction(
