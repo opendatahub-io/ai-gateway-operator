@@ -608,7 +608,7 @@ func TestReportSubModuleStatus_AIGridManaged(t *testing.T) {
 		return objs
 	}
 	withOperator := func(objs []client.Object, ready bool) []client.Object {
-		return append(objs, aiGridOperatorDeployment("test-ns", ready))
+		return append(objs, aiGridOperatorDeployment(deriveAIGridNamespace("test-ns"), ready))
 	}
 
 	tests := []struct {

@@ -466,9 +466,11 @@ func testMaaSReleasesPopulated(t *testing.T) {
 	aiGateway := &componentsv1alpha1.AIGateway{
 		ObjectMeta: metav1.ObjectMeta{Name: componentsv1alpha1.AIGatewayInstanceName},
 	}
-	g.Eventually(k.Get(aiGateway)).WithContext(ctx).WithTimeout(timeout).WithPolling(interval).Should(
-		jq.Match(`.status.releases[] | select(.name == "AI Gateway Operator") | .version != ""`),
-	)
+	g.Eventually(k.Get(aiGateway)).WithContext(ctx).WithTimeout(timeout).WithPolling(interval).Should(And(
+		jq.Match(`.status.releases | length > 0`),
+		jq.Match(`.status.releases | any(.name == "Model as a service")`),
+		jq.Match(`.status.releases | all(.version != "")`),
+	))
 }
 
 // testMaaSPlatformVersionEchoed verifies the upgrade handshake: when the platform operator
