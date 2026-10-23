@@ -66,6 +66,10 @@ lint-fix: ## Run golangci-lint linter and perform fixes.
 get-manifests: ## Download component manifests.
 	./hack/scripts/get-manifests.sh
 
+.PHONY: update-refs-shas
+update-refs-shas: ## Bump pins in get-manifests.sh to tip of main (requires network).
+	./hack/scripts/update-manifest-shas.sh
+
 .PHONY: deps
 deps: ## Tidy and verify Go module dependencies.
 	go mod tidy

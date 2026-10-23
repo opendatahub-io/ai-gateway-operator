@@ -17,17 +17,19 @@ A Kubernetes operator that manages AI Gateway components for [Open Data Hub](htt
 
 - **[Enabling Models as a Service](docs/enabling-models-as-a-service.md)** - Deploy and manage MaaS for multi-tenant model inference
 - **[Architecture](docs/architecture.md)** - How ai-gateway-operator manages sub-components
-- **[Contributing](CONTRIBUTING.md)** - Development setup, CI, and test ownership boundaries (AIGO / AIGC / MaaS)
 
 ## Updating Component Manifests
 
-This operator vendors manifests from sub-components into `config/manifests/`. These files are checked into the repository because the container build expects them in the source tree (`COPY config/manifests/` in the Dockerfile).
+This operator vendors manifests from sub-components into `config/manifests/`. These files are checked into the repository because the container build expects them in the source tree (`COPY config/manifests/` in the Dockerfile). Manifests can't be fetched at build time because downstream builds are isolated from network.
 
-When a sub-component's manifests change, update the vendored copy:
+A daily GitHub Actions workflow (`.github/workflows/update-manifest-shas.yml`) bumps those SHAs to the tip of `main` on each upstream, refreshes the trees, and opens a PR. When bumping manually, commit **both** the pin change and the refreshed trees:
 
-1. Edit `hack/scripts/get-manifests.sh` and update the commit SHA for the component.
-2. Run `make get-manifests` to fetch the manifests at the pinned commit.
-3. Commit both `hack/scripts/get-manifests.sh` and `config/manifests/` changes together.
+```bash
+make update-refs-shas   # rewrite pins to latest commits on main branch
+make get-manifests      # download into config/manifests/<component>/
+```
+
+`config/manifests/ai-gateway-operator/` is this operator's own deploy tree for opendatahub-operator (not a sub-component pin).
 
 ## References
 
