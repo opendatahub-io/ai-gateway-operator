@@ -116,6 +116,7 @@ var maasImageParamMap = map[string]string{
 var aiGatewayControllerImageParamMap = map[string]string{
 	"ai-gateway-controller-image": "RELATED_IMAGE_ODH_AI_GATEWAY_CONTROLLER_IMAGE",
 	"praxis-extproc-image":        "RELATED_IMAGE_ODH_PRAXIS_EXTPROC_IMAGE",
+	"kube-auth-proxy-image":       "RELATED_IMAGE_ODH_KUBE_AUTH_PROXY_IMAGE",
 }
 
 var aiGridOperatorImageParamMap = map[string]string{
