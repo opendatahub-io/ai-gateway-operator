@@ -101,7 +101,7 @@ fetch_component() {
 # RHDS commits: https://github.com/red-hat-data-services/<repo_name>/commits/
 
 declare -A COMPONENTS=(
-    [batchgateway]="llm-d-batch-gateway-operator|config|734c03c14cb76798734b0756562df7f3ab9a696c"
+    [batchgateway]="llm-d-batch-gateway-operator|config|a70baa9565898c65412389f1cf2a543a197e5ce8"
     [maascontroller]="models-as-a-service|deployment/base/maas-controller|9eba6984b7fbf422da5877c3b966f5eeb6b144e8|9eba6984b7fbf422da5877c3b966f5eeb6b144e8"
     [aigatewaycontroller]="ai-gateway-controller|config/self|fe5b38c2ef23972256b3cd26b808d6acd2b3e630|fe5b38c2ef23972256b3cd26b808d6acd2b3e630"
     [aigrid]="praxis-ai-grid-operator|deploy|33cb906be2bb0ebdbaf253bd307939a44f41b37b|dbd7f199dedb3f931b8ce5750022f6ff577c094c"
