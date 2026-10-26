@@ -102,7 +102,7 @@ fetch_component() {
 
 declare -A COMPONENTS=(
     [batchgateway]="llm-d-batch-gateway-operator|config|a70baa9565898c65412389f1cf2a543a197e5ce8"
-    [maascontroller]="models-as-a-service|deployment/base/maas-controller|9eba6984b7fbf422da5877c3b966f5eeb6b144e8|9eba6984b7fbf422da5877c3b966f5eeb6b144e8"
+    [maascontroller]="models-as-a-service|deployment/base/maas-controller|cc59a80d1b55dfb24f4ac8ad62dbfa15392dfaaa|cc59a80d1b55dfb24f4ac8ad62dbfa15392dfaaa"
     [aigatewaycontroller]="ai-gateway-controller|config/self|fe5b38c2ef23972256b3cd26b808d6acd2b3e630|fe5b38c2ef23972256b3cd26b808d6acd2b3e630"
     [aigrid]="praxis-ai-grid-operator|deploy|33cb906be2bb0ebdbaf253bd307939a44f41b37b|dbd7f199dedb3f931b8ce5750022f6ff577c094c"
 )
