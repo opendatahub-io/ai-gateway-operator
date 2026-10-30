@@ -39,6 +39,11 @@ this repo enforces and how to work with it.
   `hack/scripts/get-manifests.sh` into `config/manifests/<sub-component>/`.
   Commit the result whenever you bump a pinned SHA — see
   [docs/architecture.md](docs/architecture.md#22-ai-gateway-operator-fetches-sub-component-manifests).
+- `make update-refs-shas` — bump each `<branch>@<sha>` ref in
+  `get-manifests.sh` (ODH and RHDS) to the tip of its branch, then run
+  `make get-manifests` and commit both (also done daily by
+  `.github/workflows/update-manifest-shas.yml`). Exits non-zero if any ref
+  fails to resolve.
 - `make manifests` — regenerate `config/rbac/role.yaml` from kubebuilder RBAC
   markers in `aigateway_controller.go`. Run this whenever you add permissions
   needed by a managed sub-component's workload.
@@ -60,6 +65,7 @@ this repo enforces and how to work with it.
 | `ci.yml` / `test` | push + PR | `make test`, then provisions Kind + `make get-manifests` + `make test-integration` |
 | `ci.yml` / `e2e` | push + PR (after `test`) | Provisions Kind, builds/pushes image (`container-build` includes `get-manifests` via `container-prep`), `make test-e2e` |
 | `ci-image.yml` | push to `main` and `v*` tags | Container image build |
+| `update-manifest-shas.yml` | daily cron + manual | Bump each ref to the tip of its branch, refresh vendored trees, open PR |
 | `tls-lint.yml`, `semgrep-tls.yml` | PR to `main`, `master`, `dev`, `odh`, `incubating`, `stable`, or `stable-2.x` | TLS-configuration static analysis |
 
 **Run locally before pushing:** `make lint`, `make test`, and — if you touched

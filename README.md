@@ -21,13 +21,20 @@ A Kubernetes operator that manages AI Gateway components for [Open Data Hub](htt
 
 ## Updating Component Manifests
 
-This operator vendors manifests from sub-components into `config/manifests/`. These files are checked into the repository because the container build expects them in the source tree (`COPY config/manifests/` in the Dockerfile).
+This operator vendors manifests from sub-components into `config/manifests/`. These files are checked into the repository because the container build expects them in the source tree (`COPY config/manifests/` in the Dockerfile). Manifests can't be fetched at build time because downstream builds are isolated from network.
 
-When a sub-component's manifests change, update the vendored copy:
+Each component in `hack/scripts/get-manifests.sh` pins an ODH ref and an RHDS ref as `<branch>@<sha>`. The branch is the one whose Konflux build produces the image the manifests run with: `stable` for `maascontroller` and `aigatewaycontroller`, `main` for `batchgateway`, and the current `rhoai-3.x` release branch for RHDS. aigrid is excluded: its pins are deliberate release candidates moved by hand, and the daily workflow leaves it alone (see `SKIP_BUMP` in `hack/scripts/update-manifest-shas.sh`).
 
-1. Edit `hack/scripts/get-manifests.sh` and update the commit SHA for the component.
-2. Run `make get-manifests` to fetch the manifests at the pinned commit.
-3. Commit both `hack/scripts/get-manifests.sh` and `config/manifests/` changes together.
+A daily GitHub Actions workflow (`.github/workflows/update-manifest-shas.yml`) bumps every ref to the tip of its branch, refreshes the trees, and opens a PR. When bumping manually, commit **both** the pin change and the refreshed trees:
+
+```bash
+make update-refs-shas   # rewrite each ref to the latest commit on its branch
+make get-manifests      # download into config/manifests/<component>/
+```
+
+> **Note:** nothing in this repo sets `ODH_PLATFORM_TYPE`, so the vendored trees are in practice fetched from the ODH refs (setting that variable fetches the RHDS refs instead). RHDS refs are kept up to date but are not used for packaging yet, so a downstream-only manifest change on `rhoai-3.x` does not reach the RHOAI image until the RHDS build fetches or vendors the RHDS trees.
+
+`config/manifests/ai-gateway-operator/` is this operator's own deploy tree for opendatahub-operator (not a sub-component pin).
 
 ## References
 

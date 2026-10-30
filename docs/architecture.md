@@ -72,10 +72,13 @@ Each sub-component operator (e.g. batch-gateway-operator) lives in its own midst
 
 ### 2.2 ai-gateway-operator fetches sub-component manifests
 
-`make get-manifests` (`hack/scripts/get-manifests.sh`) fetches each sub-component's manifests from its repo at a pinned commit SHA and copies them into `config/manifests/<sub-component>/` (e.g. `config/manifests/batchgateway/`).
+`make get-manifests` (`hack/scripts/get-manifests.sh`) fetches each sub-component's manifests from its repo at a pinned commit and copies them into `config/manifests/<sub-component>/` (e.g. `config/manifests/batchgateway/`).
+- Each component pins an ODH ref and an RHDS ref as `<branch>@<sha>`. The branch matches the one whose Konflux build produces the deployed image: ODH `stable` for `maascontroller` and `aigatewaycontroller` (their `odh-stable` images build from `stable`), ODH `main` for `batchgateway` (its `odh-stable` image builds from `main`), and the current `rhoai-3.x` branch for RHDS (RHDS `main` builds no images). `aigrid` is excluded from the bump workflow (`SKIP_BUMP` in `update-manifest-shas.sh`): its refs are pinned by hand to release candidates.
+- The trees are fetched from the ODH refs because nothing sets `ODH_PLATFORM_TYPE` (setting it switches `get-manifests` to the RHDS refs). They flow unchanged to the RHDS `rhoai-3.x` branch and into the RHOAI image, where opendatahub-operator substitutes the RHOAI images. RHDS refs are kept up to date but not used for packaging yet, so a downstream-only manifest change on `rhoai-3.x` does not reach RHOAI until the RHDS build fetches or vendors the RHDS trees.
 - The fetched files must be committed to git so that PR review can catch manifest changes and container builds remain reproducible without network access.
 - At build time, `Dockerfile` copies these manifests into the container image at `/manifests/`; the manager reads them from this path at runtime (see `config/manager/manager.yaml`).
 - To upgrade a sub-component, update the SHA in `get-manifests.sh`, re-run `make get-manifests`, and commit the result.
+- A daily workflow (`.github/workflows/update-manifest-shas.yml`) or `make update-refs-shas` + `make get-manifests` advances every ref to the tip of its branch and refreshes the trees.
 - A flat source with plain YAML and no `kustomization.yaml` (e.g. `aigrid`) gets one generated listing its files.
 
 ### 2.3 ai-gateway-operator generates its own deploy manifests
