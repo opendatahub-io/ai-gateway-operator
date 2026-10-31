@@ -66,6 +66,10 @@ lint-fix: ## Run golangci-lint linter and perform fixes.
 get-manifests: ## Download component manifests.
 	./hack/scripts/get-manifests.sh
 
+.PHONY: verify-manifest-flags
+verify-manifest-flags: ## Check vendored manifest flags against the images that run with them.
+	./hack/scripts/verify-manifest-flags.sh
+
 .PHONY: deps
 deps: ## Tidy and verify Go module dependencies.
 	go mod tidy
