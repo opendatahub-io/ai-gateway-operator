@@ -134,7 +134,10 @@ import (
 // +kubebuilder:rbac:groups=components.platform.opendatahub.io,resources=modelsasservices/status,verbs=get;patch;update
 // +kubebuilder:rbac:groups=config.openshift.io,resources=apiservers;authentications,verbs=get;list;watch
 // +kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=create;delete;get;list;patch;update;watch
-// +kubebuilder:rbac:groups=discovery.k8s.io,resources=endpointslices,verbs=list;watch
+// Granted by the vendored Grid operator Roles.
+// +kubebuilder:rbac:groups=discovery.k8s.io,resources=endpointslices,verbs=create;delete;get;list;update;watch
+// +kubebuilder:rbac:groups=discovery.k8s.io,resources=endpointslices/restricted,verbs=create
+// +kubebuilder:rbac:groups="",resources=serviceaccounts/token,resourceNames=grid-operator-metrics-scraper,verbs=create
 // +kubebuilder:rbac:groups=extensions.istio.io,resources=wasmplugins,verbs=get
 // +kubebuilder:rbac:groups=extensions.kuadrant.io,resources=telemetrypolicies,verbs=create;delete;get;list;patch;watch
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=gateways,verbs=get;list;watch
