@@ -85,6 +85,13 @@ func TestOverWriteConditionAIGridOnlyFollowsGridOperator(t *testing.T) {
 	}{
 		{"grid operator available", []client.Object{readyDeploy(aiGridOperatorDeploymentName, "odh-ai-grid")}, metav1.ConditionTrue},
 		{"grid operator not yet available", nil, metav1.ConditionFalse},
+		{"removed MaaS still tearing down", []client.Object{
+			readyDeploy(aiGridOperatorDeploymentName, "odh-ai-grid"),
+			&appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{
+				Name: maasControllerDeploymentName, Namespace: "opendatahub",
+				Labels: map[string]string{"app.kubernetes.io/part-of": componentName},
+			}},
+		}, metav1.ConditionFalse},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			g := NewWithT(t)
