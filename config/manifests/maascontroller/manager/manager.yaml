@@ -83,28 +83,19 @@ spec:
                 key: usage-logs-tenancy-proxy-image
                 name: maas-parameters
                 optional: true
+          # maas-discovery is intentionally not shippable in 3.6 (feature not ready).
+          # The MAAS_DISCOVERY_{ENABLED,REPLICAS,LOG_LEVEL} env vars and their
+          # maas-parameters ConfigMap keys are withheld here so the service cannot
+          # be enabled on product installs; the maas-controller defaults
+          # DiscoveryEnabled to false when the env var is absent and its reconcile
+          # loop tears down any leftover discovery resources (e.g. from a cluster
+          # upgraded with the flag on). Restore these blocks together with the
+          # maascontroller manifest sync from models-as-a-service when the feature
+          # ships in a later release.
           - name: RELATED_IMAGE_ODH_MAAS_DISCOVERY_IMAGE
             valueFrom:
               configMapKeyRef:
                 key: maas-discovery-image
-                name: maas-parameters
-                optional: true
-          - name: MAAS_DISCOVERY_ENABLED
-            valueFrom:
-              configMapKeyRef:
-                key: maas-discovery-enabled
-                name: maas-parameters
-                optional: true
-          - name: MAAS_DISCOVERY_REPLICAS
-            valueFrom:
-              configMapKeyRef:
-                key: maas-discovery-replicas
-                name: maas-parameters
-                optional: true
-          - name: MAAS_DISCOVERY_LOG_LEVEL
-            valueFrom:
-              configMapKeyRef:
-                key: maas-discovery-log-level
                 name: maas-parameters
                 optional: true
           - name: MONITORING_NAMESPACE

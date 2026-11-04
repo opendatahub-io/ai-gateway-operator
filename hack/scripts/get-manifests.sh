@@ -24,6 +24,49 @@ ensure_kustomization() {
     echo "Generated ${dir}/kustomization.yaml"
 }
 
+# The maas-discovery service is not shippable in 3.6 (feature not ready; picked
+# up again next release). Upstream models-as-a-service keeps the
+# MAAS_DISCOVERY_* knobs in deployment/base/maas-controller for ODH-side
+# development, so every vendoring sync must strip them here to keep the service
+# un-enableable on product installs: with the env vars absent from the
+# maas-controller Deployment, editing the maas-parameters ConfigMap has no
+# effect, and the controller's DiscoveryEnabled defaults to false (its
+# reconcile loop tears down any leftover discovery resources on upgrade).
+# The maas-discovery-image reference is deliberately KEPT so the
+# CSV-declared RELATED_IMAGE_ODH_MAAS_DISCOVERY_IMAGE still resolves.
+# Delete this special case when the feature ships and the upstream manifests
+# are safe to vendor as-is again.
+strip_maas_discovery_knobs() {
+    local dst="$1"
+
+    # Remove the MAAS_DISCOVERY_{ENABLED,REPLICAS,LOG_LEVEL} env blocks from the
+    # manager Deployment. Each block is a configMapKeyRef env entry ending in
+    # "optional: true"; skip from the "- name:" line to the block terminator.
+    awk '
+        /^ *- name: MAAS_DISCOVERY_(ENABLED|REPLICAS|LOG_LEVEL)$/ { skip = 1 }
+        skip && /^ *optional: true$/ { skip = 0; next }
+        skip { next }
+        { print }
+    ' "${dst}/manager/manager.yaml" > "${dst}/manager/manager.yaml.tmp" &&
+    mv "${dst}/manager/manager.yaml.tmp" "${dst}/manager/manager.yaml"
+
+    # Drop the corresponding maas-parameters keys from every params.env
+    # (default and overlays).
+    find "${dst}" -name params.env -exec sed -i \
+        -e '/^maas-discovery-enabled=/d' \
+        -e '/^maas-discovery-replicas=/d' \
+        -e '/^maas-discovery-log-level=/d' \
+        {} +
+
+    # Fail loudly if anything survived: the upstream manifest shape has likely
+    # changed and this strip needs updating.
+    if grep -rn -E 'name: MAAS_DISCOVERY_(ENABLED|REPLICAS|LOG_LEVEL)$|^maas-discovery-(enabled|replicas|log-level)=' "${dst}"; then
+        echo "[ERROR] maascontroller: failed to strip maas-discovery knobs;" >&2
+        echo "        update strip_maas_discovery_knobs in get-manifests.sh" >&2
+        return 1
+    fi
+}
+
 copy_component_manifests() {
     local component_name="$1" src="$2" dst="$3"
 
@@ -39,6 +82,9 @@ copy_component_manifests() {
     else
         cp -a "${src}/." "${dst}/"
         ensure_kustomization "${dst}"
+        if [[ "${component_name}" == "maascontroller" ]]; then
+            strip_maas_discovery_knobs "${dst}"
+        fi
     fi
 }
 
