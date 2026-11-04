@@ -344,12 +344,42 @@ func anySubModuleManaged(obj *componentApi.AIGateway) bool {
 		obj.Spec.AIGrid.ManagementState == managedState
 }
 
+// aiGridOnly reports whether aiGrid is the only Managed sub-module.
+func aiGridOnly(obj *componentApi.AIGateway) bool {
+	return obj.Spec.AIGrid.ManagementState == managedState &&
+		obj.Spec.ModelsAsAService.ManagementState != managedState &&
+		obj.Spec.BatchGateway.ManagementState != managedState
+}
+
+// aiGridOnlyDeploymentsAvailable sets DeploymentsAvailable from the grid operator. The generic
+// deployments action lists only the applications namespace, where aiGrid alone deploys nothing.
+func (m *Module) aiGridOnlyDeploymentsAvailable(ctx context.Context, rr *odhtypes.ReconciliationRequest) error {
+	ready, err := deploymentAvailable(ctx, rr, aiGridOperatorDeploymentName, deriveAIGridNamespace(m.cfg.ApplicationsNamespace))
+	if err != nil {
+		return fmt.Errorf("checking %s Deployment: %w", aiGridOperatorDeploymentName, err)
+	}
+	if ready {
+		rr.Conditions.MarkTrue(status.ConditionDeploymentsAvailable)
+		return nil
+	}
+	rr.Conditions.MarkFalse(
+		status.ConditionDeploymentsAvailable,
+		conditions.WithReason(status.SubModuleNotReadyReason),
+		conditions.WithMessage("aiGrid is Managed but the grid operator is not yet available"),
+	)
+	return nil
+}
+
 // force to set the DeploymentsAvailable condition to Info level from Error
 // this makes operator not flag AIGateway CR status to False, thus opendatahub-operator wont set ModuleStatus to False
 func (m *Module) overWriteCondition(ctx context.Context, rr *odhtypes.ReconciliationRequest) error {
 	obj, ok := rr.Instance.(*componentApi.AIGateway)
 	if !ok {
 		return fmt.Errorf("instance is not an AIGateway")
+	}
+
+	if aiGridOnly(obj) {
+		return m.aiGridOnlyDeploymentsAvailable(ctx, rr)
 	}
 
 	if anySubModuleManaged(obj) {
