@@ -135,6 +135,13 @@ rules:
 - apiGroups: ["gateway.networking.k8s.io"]
   resources: ["gateways"]
   verbs: ["get", "list", "watch"]
+# The consumer portal resolves the external gateway hostname for its OIDC
+# callback from the OpenShift Route that fronts the Gateway in the ClusterIP +
+# Route gateway pattern. Routes are discovered by listing the Gateway
+# namespace and matching backend identity, not by name; read-only.
+- apiGroups: ["route.openshift.io"]
+  resources: ["routes"]
+  verbs: ["get", "list"]
 - apiGroups: ["networking.istio.io"]
   resources: ["serviceentries"]
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
