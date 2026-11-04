@@ -40,12 +40,20 @@ strip_maas_discovery_knobs() {
     local dst="$1"
 
     # Remove the MAAS_DISCOVERY_{ENABLED,REPLICAS,LOG_LEVEL} env blocks from the
-    # manager Deployment. Each block is a configMapKeyRef env entry ending in
-    # "optional: true"; skip from the "- name:" line to the block terminator.
+    # manager Deployment. Skip from the "- name:" line to the first non-blank
+    # line indented no deeper than that item (the next env entry or a container
+    # field), so an unexpected upstream block shape ends the skip at the entry
+    # boundary instead of running through the next "optional: true" line and
+    # eating an unrelated env block.
     awk '
-        /^ *- name: MAAS_DISCOVERY_(ENABLED|REPLICAS|LOG_LEVEL)$/ { skip = 1 }
-        skip && /^ *optional: true$/ { skip = 0; next }
-        skip { next }
+        /^ *- name: MAAS_DISCOVERY_(ENABLED|REPLICAS|LOG_LEVEL)$/ {
+            match($0, /^ */); dash = RLENGTH; skip = 1; next
+        }
+        skip {
+            match($0, /^ */)
+            if (RLENGTH > dash || $0 ~ /^ *$/) next
+            skip = 0
+        }
         { print }
     ' "${dst}/manager/manager.yaml" > "${dst}/manager/manager.yaml.tmp" &&
     mv "${dst}/manager/manager.yaml.tmp" "${dst}/manager/manager.yaml"

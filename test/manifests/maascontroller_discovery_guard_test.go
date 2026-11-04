@@ -76,18 +76,59 @@ func TestManagerDeploymentWithholdsDiscoveryKnobs(t *testing.T) {
 
 	// The image reference must survive the withholding, otherwise the
 	// CSV-declared RELATED_IMAGE_ODH_MAAS_DISCOVERY_IMAGE points nowhere.
-	for _, want := range []string{"RELATED_IMAGE_ODH_MAAS_DISCOVERY_IMAGE"} {
-		found := false
-		for _, name := range envNames {
-			if name == want {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Errorf("maas-controller Deployment is missing %s; the discovery image plumbing must be kept", want)
+	found := false
+	for _, name := range envNames {
+		if name == "RELATED_IMAGE_ODH_MAAS_DISCOVERY_IMAGE" {
+			found = true
+			break
 		}
 	}
+	if !found {
+		t.Errorf("maas-controller Deployment is missing %s; the discovery image plumbing must be kept", "RELATED_IMAGE_ODH_MAAS_DISCOVERY_IMAGE")
+	}
+
+	// Pin the complete env set so a malformed strip (e.g. after an upstream
+	// manifest shape change) that deletes an unrelated env var fails CI here
+	// instead of shipping a damaged Deployment. Update this list deliberately
+	// when the vendored manifests legitimately gain or lose env vars.
+	wantEnv := []string{
+		"CONTROLLER_NAMESPACE",
+		"GATEWAY_NAME",
+		"GATEWAY_NAMESPACE",
+		"INFRA_NAMESPACE",
+		"MAAS_SUBSCRIPTION_NAMESPACE",
+		"AITENANT_NAMESPACE",
+		"RELATED_IMAGE_ODH_MAAS_API_IMAGE",
+		"RELATED_IMAGE_ODH_AI_GATEWAY_PAYLOAD_PROCESSING_IMAGE",
+		"RELATED_IMAGE_UBI_MINIMAL_IMAGE",
+		"RELATED_IMAGE_ODH_PYTHON_312_IMAGE",
+		"RELATED_IMAGE_ODH_MAAS_DISCOVERY_IMAGE",
+		"MONITORING_NAMESPACE",
+	}
+	if !equalUnordered(envNames, wantEnv) {
+		t.Errorf("maas-controller Deployment env set changed:\n got: %v\nwant: %v\n"+
+			"If this is a legitimate vendored manifest change, update wantEnv; "+
+			"if not, strip_maas_discovery_knobs in hack/scripts/get-manifests.sh may have damaged manager.yaml",
+			envNames, wantEnv)
+	}
+}
+
+// equalUnordered reports whether a and b contain the same elements in any order.
+func equalUnordered(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	counts := make(map[string]int, len(a))
+	for _, s := range a {
+		counts[s]++
+	}
+	for _, s := range b {
+		counts[s]--
+		if counts[s] < 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func TestParamsEnvWithholdsDiscoveryKnobs(t *testing.T) {
