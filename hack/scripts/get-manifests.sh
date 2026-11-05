@@ -100,8 +100,8 @@ fetch_component() {
     local component_name="$1"
     local repo_name="$2"
     local src_path="$3"
-    local odh_commit="$4"
-    local rhds_commit="$5"
+    local odh_ref="$4"
+    local rhds_ref="$5"
 
     local dst_manifests_dir="${PROJECT_ROOT}/config/manifests/${component_name}"
 
@@ -109,16 +109,18 @@ fetch_component() {
     # .agents/skills/odh-component-to-module/references/
 
     local repo_url
-    local commit_sha
+    local ref
     if [[ "${ODH_PLATFORM_TYPE:-OpenDataHub}" == "OpenDataHub" ]]; then
         echo "Downloading manifests for ODH"
         repo_url="https://github.com/opendatahub-io/${repo_name}"
-        commit_sha="$odh_commit"
+        ref="$odh_ref"
     else
         echo "Downloading manifests for RHDS"
         repo_url="https://github.com/red-hat-data-services/${repo_name}"
-        commit_sha="$rhds_commit"
+        ref="$rhds_ref"
     fi
+    # Refs are <branch>@<sha>; the branch is only used by update-manifest-shas.sh.
+    local commit_sha="${ref##*@}"
 
     if [[ -z "${commit_sha}" ]]; then
         echo "[ERROR] No commit SHA for ${component_name} (platform: ${ODH_PLATFORM_TYPE:-OpenDataHub})" >&2
@@ -147,21 +149,39 @@ fetch_component() {
 }
 
 # Component manifest sources. To upgrade a component, change its SHA(s) below
-# and run: make get-manifests. To add a component, add a new entry.
+# and run: make get-manifests (or run make update-refs-shas first to bump every
+# ref to the tip of its branch). To add a component, add a new entry.
 #
-#   <component_name> = "<repo_name>|<src_path>|<odh_commit>|<rhds_commit>"
+#   <component_name> = "<repo_name>|<src_path>|<odh_branch>@<sha>|<rhds_branch>@<sha>"
 #
-# ODH commits:   https://github.com/opendatahub-io/<repo_name>/commits/
-# RHDS commits: https://github.com/red-hat-data-services/<repo_name>/commits/
+# The branch is the one whose Konflux build produces the image the manifests
+# are deployed with, so manifests and binaries stay in step:
+#   - ODH: `stable` for components whose odh-stable image is built from
+#     `stable` (maascontroller, aigatewaycontroller), `main` for components
+#     that build odh-stable from `main` (batchgateway).
+#   - aigrid is excluded from automated bumps (its pins are deliberate
+#     release candidates); see SKIP_BUMP in update-manifest-shas.sh.
+#   - RHDS: the current RHOAI release branch (rhoai-3.x); RHDS `main` builds
+#     no images. Bump the branch name here when a new release branch is cut.
+#
+# NOTE: RHDS refs are recorded but not used for packaging yet. Nothing sets
+# ODH_PLATFORM_TYPE, so config/manifests/ is always fetched from the ODH refs
+# and those trees flow unchanged to the RHDS rhoai-3.x branch and the RHOAI
+# image (RHOAI images are substituted by opendatahub-operator). A downstream-only
+# manifest change on rhoai-3.x therefore does not reach RHOAI until the RHDS
+# build fetches or vendors the RHDS trees.
+#
+# ODH commits:   https://github.com/opendatahub-io/<repo_name>/commits/<branch>
+# RHDS commits: https://github.com/red-hat-data-services/<repo_name>/commits/<branch>
 
 declare -A COMPONENTS=(
-    [batchgateway]="llm-d-batch-gateway-operator|config|93f1c2c021a7ebae6f44c9e1dd05d7c9a34a46e8|93f1c2c021a7ebae6f44c9e1dd05d7c9a34a46e8"
-    [maascontroller]="models-as-a-service|deployment/base/maas-controller|6871535a6dc8fed46c795d184f0513d2c8cd94e1|6871535a6dc8fed46c795d184f0513d2c8cd94e1"
-    [aigatewaycontroller]="ai-gateway-controller|config/self|21f8308ed696eb3281d48738be5f3d94b467c82e|21f8308ed696eb3281d48738be5f3d94b467c82e"
-    [aigrid]="praxis-ai-grid-operator|deploy|db11454660b7be62bccffe4888560c1636d39305|c863e173049a921160843237b6b03818eaa12b1b"
+    [batchgateway]="llm-d-batch-gateway-operator|config|main@93f1c2c021a7ebae6f44c9e1dd05d7c9a34a46e8|rhoai-3.6@9f35e146b94798ad2dd457bfd2e31e4fbe8eb18c"
+    [maascontroller]="models-as-a-service|deployment/base/maas-controller|stable@a97669aed12bb07cdbf8c7c27158dd4a9ad955da|rhoai-3.6@429aad1c9785935e0c4bf8f2d5ba5bca0ec287df"
+    [aigatewaycontroller]="ai-gateway-controller|config/self|stable@c70744767517d8431f2b7213d7a41046c8178d2b|rhoai-3.6@3fcd9fef6275ee71a695a96ec99e1d453fb60860"
+    [aigrid]="praxis-ai-grid-operator|deploy|main@db11454660b7be62bccffe4888560c1636d39305|rhoai-3.6@c863e173049a921160843237b6b03818eaa12b1b"
 )
 
 for component_name in "${!COMPONENTS[@]}"; do
-    IFS='|' read -r repo_name src_path odh_commit rhds_commit <<< "${COMPONENTS[$component_name]}"
-    fetch_component "$component_name" "$repo_name" "$src_path" "$odh_commit" "$rhds_commit"
+    IFS='|' read -r repo_name src_path odh_ref rhds_ref <<< "${COMPONENTS[$component_name]}"
+    fetch_component "$component_name" "$repo_name" "$src_path" "$odh_ref" "$rhds_ref"
 done
