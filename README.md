@@ -28,8 +28,7 @@ Each component in `hack/scripts/get-manifests.sh` pins an ODH ref and an RHDS re
 A daily GitHub Actions workflow (`.github/workflows/update-manifest-shas.yml`) bumps every ref to the tip of its branch, refreshes the trees, and opens a PR. When bumping manually, commit **both** the pin change and the refreshed trees:
 
 ```bash
-make update-refs-shas   # rewrite each ref to the latest commit on its branch
-make get-manifests      # download into config/manifests/<component>/
+make update-refs-shas   # rewrite each ref to the latest commit on its branch and refresh config/manifests/<component>/
 ```
 
 > **Note:** nothing in this repo sets `ODH_PLATFORM_TYPE`, so the vendored trees are in practice fetched from the ODH refs (setting that variable fetches the RHDS refs instead). RHDS refs are kept up to date but are not used for packaging yet, so a downstream-only manifest change on `rhoai-3.x` does not reach the RHOAI image until the RHDS build fetches or vendors the RHDS trees.

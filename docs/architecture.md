@@ -78,7 +78,7 @@ Each sub-component operator (e.g. batch-gateway-operator) lives in its own midst
 - The fetched files must be committed to git so that PR review can catch manifest changes and container builds remain reproducible without network access.
 - At build time, `Dockerfile` copies these manifests into the container image at `/manifests/`; the manager reads them from this path at runtime (see `config/manager/manager.yaml`).
 - To upgrade a sub-component, update the SHA in `get-manifests.sh`, re-run `make get-manifests`, and commit the result.
-- A daily workflow (`.github/workflows/update-manifest-shas.yml`) or `make update-refs-shas` + `make get-manifests` advances every ref to the tip of its branch and refreshes the trees.
+- A daily workflow (`.github/workflows/update-manifest-shas.yml`) or `make update-refs-shas` advances every ref to the tip of its branch and refreshes the trees.
 - A flat source with plain YAML and no `kustomization.yaml` (e.g. `aigrid`) gets one generated listing its files.
 
 ### 2.3 ai-gateway-operator generates its own deploy manifests

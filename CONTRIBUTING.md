@@ -40,8 +40,8 @@ this repo enforces and how to work with it.
   Commit the result whenever you bump a pinned SHA — see
   [docs/architecture.md](docs/architecture.md#22-ai-gateway-operator-fetches-sub-component-manifests).
 - `make update-refs-shas` — bump each `<branch>@<sha>` ref in
-  `get-manifests.sh` (ODH and RHDS) to the tip of its branch, then run
-  `make get-manifests` and commit both (also done daily by
+  `get-manifests.sh` (ODH and RHDS) to the tip of its branch and refresh
+  the vendored trees; commit both (also done daily by
   `.github/workflows/update-manifest-shas.yml`). Exits non-zero if any ref
   fails to resolve.
 - `make manifests` — regenerate `config/rbac/role.yaml` from kubebuilder RBAC
