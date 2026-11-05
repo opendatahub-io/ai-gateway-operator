@@ -31,6 +31,7 @@ import (
 	extv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -344,12 +345,67 @@ func anySubModuleManaged(obj *componentApi.AIGateway) bool {
 		obj.Spec.AIGrid.ManagementState == managedState
 }
 
+// aiGridOnly reports whether aiGrid is the only Managed sub-module.
+func aiGridOnly(obj *componentApi.AIGateway) bool {
+	return obj.Spec.AIGrid.ManagementState == managedState &&
+		obj.Spec.ModelsAsAService.ManagementState != managedState &&
+		obj.Spec.BatchGateway.ManagementState != managedState
+}
+
+// aiGridOnlyDeploymentsAvailable sets DeploymentsAvailable from the grid operator. The generic
+// deployments action lists only the applications namespace, where aiGrid alone deploys nothing.
+func (m *Module) aiGridOnlyDeploymentsAvailable(ctx context.Context, rr *odhtypes.ReconciliationRequest) error {
+	// Deployments still in the applications namespace, such as a removed MaaS tearing down, keep
+	// the generic result when it reports them unavailable.
+	counted, err := m.applicationsNamespaceDeployments(ctx, rr)
+	if err != nil {
+		return err
+	}
+	if generic := rr.Conditions.GetCondition(status.ConditionDeploymentsAvailable); counted > 0 &&
+		(generic == nil || generic.Status != metav1.ConditionTrue) {
+		return nil
+	}
+	ready, err := deploymentAvailable(ctx, rr, aiGridOperatorDeploymentName, deriveAIGridNamespace(m.cfg.ApplicationsNamespace))
+	if err != nil {
+		return fmt.Errorf("checking %s Deployment: %w", aiGridOperatorDeploymentName, err)
+	}
+	if ready {
+		rr.Conditions.MarkTrue(status.ConditionDeploymentsAvailable)
+		return nil
+	}
+	rr.Conditions.MarkFalse(
+		status.ConditionDeploymentsAvailable,
+		conditions.WithReason(status.SubModuleNotReadyReason),
+		conditions.WithMessage("aiGrid is Managed but the grid operator is not yet available"),
+	)
+	return nil
+}
+
+// applicationsNamespaceDeployments counts the Deployments the generic deployments action lists.
+func (m *Module) applicationsNamespaceDeployments(ctx context.Context, rr *odhtypes.ReconciliationRequest) (int, error) {
+	if rr.Client == nil {
+		return 0, nil
+	}
+	deployments := &appsv1.DeploymentList{}
+	if err := rr.Client.List(ctx, deployments,
+		client.InNamespace(m.cfg.ApplicationsNamespace),
+		client.MatchingLabels{labels.K8SCommon.PartOf: componentName},
+	); err != nil {
+		return 0, fmt.Errorf("listing %s Deployments: %w", componentName, err)
+	}
+	return len(deployments.Items), nil
+}
+
 // force to set the DeploymentsAvailable condition to Info level from Error
 // this makes operator not flag AIGateway CR status to False, thus opendatahub-operator wont set ModuleStatus to False
 func (m *Module) overWriteCondition(ctx context.Context, rr *odhtypes.ReconciliationRequest) error {
 	obj, ok := rr.Instance.(*componentApi.AIGateway)
 	if !ok {
 		return fmt.Errorf("instance is not an AIGateway")
+	}
+
+	if aiGridOnly(obj) {
+		return m.aiGridOnlyDeploymentsAvailable(ctx, rr)
 	}
 
 	if anySubModuleManaged(obj) {
