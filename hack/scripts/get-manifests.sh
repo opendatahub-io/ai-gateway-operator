@@ -4,6 +4,24 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
+# BSD sed (macOS) requires `sed -i ''`; GNU sed uses `sed -i` with the next flag as backup suffix.
+sed_inplace_delete_params_env_keys() {
+    local dst="$1"
+    if sed --version >/dev/null 2>&1; then
+        find "${dst}" -name params.env -exec sed -i \
+            -e '/^maas-discovery-enabled=/d' \
+            -e '/^maas-discovery-replicas=/d' \
+            -e '/^maas-discovery-log-level=/d' \
+            {} +
+    else
+        find "${dst}" -name params.env -exec sed -i '' \
+            -e '/^maas-discovery-enabled=/d' \
+            -e '/^maas-discovery-replicas=/d' \
+            -e '/^maas-discovery-log-level=/d' \
+            {} +
+    fi
+}
+
 # Flat plain-YAML sources ship no kustomization; generate one (the render engine requires it).
 ensure_kustomization() {
     local dir="$1"
@@ -60,11 +78,7 @@ strip_maas_discovery_knobs() {
 
     # Drop the corresponding maas-parameters keys from every params.env
     # (default and overlays).
-    find "${dst}" -name params.env -exec sed -i \
-        -e '/^maas-discovery-enabled=/d' \
-        -e '/^maas-discovery-replicas=/d' \
-        -e '/^maas-discovery-log-level=/d' \
-        {} +
+    sed_inplace_delete_params_env_keys "${dst}"
 
     # Fail loudly if anything survived: the upstream manifest shape has likely
     # changed and this strip needs updating.
