@@ -175,9 +175,9 @@ fetch_component() {
 # RHDS commits: https://github.com/red-hat-data-services/<repo_name>/commits/<branch>
 
 declare -A COMPONENTS=(
-    [batchgateway]="llm-d-batch-gateway-operator|config|main@93f1c2c021a7ebae6f44c9e1dd05d7c9a34a46e8|rhoai-3.6@9f35e146b94798ad2dd457bfd2e31e4fbe8eb18c"
-    [maascontroller]="models-as-a-service|deployment/base/maas-controller|stable@a97669aed12bb07cdbf8c7c27158dd4a9ad955da|rhoai-3.6@429aad1c9785935e0c4bf8f2d5ba5bca0ec287df"
-    [aigatewaycontroller]="ai-gateway-controller|config/self|stable@c70744767517d8431f2b7213d7a41046c8178d2b|rhoai-3.6@3fcd9fef6275ee71a695a96ec99e1d453fb60860"
+    [batchgateway]="llm-d-batch-gateway-operator|config|main@93f1c2c021a7ebae6f44c9e1dd05d7c9a34a46e8|rhoai-3.6@9baae9351a5df240d2bf0c6210d711f3e1fa67bd"
+    [maascontroller]="models-as-a-service|deployment/base/maas-controller|stable@9adfccc587e4899ef55a5bd3aa97deb810c34359|rhoai-3.6@7fb09677683ee20c0cf0c72b70744bcd55347dd2"
+    [aigatewaycontroller]="ai-gateway-controller|config/self|stable@63bee193dc9dbb655db2a133da75bfc41fd8efca|rhoai-3.6@31900ac01ce4220791e71669dc11f044718cbf82"
     [aigrid]="praxis-ai-grid-operator|deploy|main@db11454660b7be62bccffe4888560c1636d39305|rhoai-3.6@c863e173049a921160843237b6b03818eaa12b1b"
 )
 
