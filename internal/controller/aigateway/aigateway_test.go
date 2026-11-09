@@ -59,6 +59,8 @@ import (
 	"github.com/opendatahub-io/opendatahub-operator/v2/pkg/metadata/labels"
 )
 
+const testMaaSTeardownTimeout = 2 * time.Second
+
 func newTestModule(t *testing.T) *Module {
 	t.Helper()
 
@@ -262,10 +264,13 @@ func TestInitializeRemovedExpiresTeardownAndDeletesConfig(t *testing.T) {
 	g := NewWithT(t)
 
 	m := newTestModule(t)
+	m.maasTeardownTimeout = testMaaSTeardownTimeout
+	now := time.Now().UTC().Truncate(time.Second)
+	m.maasTeardownNow = func() time.Time { return now }
 	obj := newTestAIGateway()
 	obj.Spec.ModelsAsAService.ManagementState = removedState
 	obj.Annotations = map[string]string{
-		maasTeardownRequestedAtKey: time.Now().UTC().Add(-(maasTeardownTimeout + time.Minute)).Format(time.RFC3339),
+		maasTeardownRequestedAtKey: now.Add(-(testMaaSTeardownTimeout + time.Second)).Format(time.RFC3339),
 	}
 	rr := newTestRR(obj)
 
@@ -297,6 +302,9 @@ func TestInitializeRemovedSchedulesTeardownRequeue(t *testing.T) {
 	g := NewWithT(t)
 
 	m := newTestModule(t)
+	m.maasTeardownTimeout = testMaaSTeardownTimeout
+	now := time.Now().UTC().Truncate(time.Second)
+	m.maasTeardownNow = func() time.Time { return now }
 	obj := newTestAIGateway()
 	obj.Spec.ModelsAsAService.ManagementState = removedState
 	rr := newTestRR(obj)
@@ -321,10 +329,10 @@ func TestInitializeRemovedSchedulesTeardownRequeue(t *testing.T) {
 	}
 
 	g.Expect(m.initialize(context.Background(), rr)).To(Succeed())
-	g.Expect(delay).To(BeNumerically(">", time.Minute))
-	g.Expect(delay).To(BeNumerically("<=", maasTeardownTimeout))
+	g.Expect(delay).To(BeNumerically(">", time.Duration(0)))
+	g.Expect(delay).To(BeNumerically("<=", testMaaSTeardownTimeout))
 	m.maasTeardownNow = func() time.Time {
-		return time.Now().Add(maasTeardownTimeout + time.Minute)
+		return now.Add(testMaaSTeardownTimeout + time.Second)
 	}
 
 	before := &componentApi.AIGateway{}
@@ -346,10 +354,13 @@ func TestMaaSTeardownRequeueRetriesAfterPatchFailure(t *testing.T) {
 	g := NewWithT(t)
 
 	m := newTestModule(t)
+	m.maasTeardownTimeout = testMaaSTeardownTimeout
+	now := time.Now().UTC().Truncate(time.Second)
+	m.maasTeardownNow = func() time.Time { return now }
 	obj := newTestAIGateway()
 	obj.Spec.ModelsAsAService.ManagementState = removedState
 	obj.Annotations = map[string]string{
-		maasTeardownRequestedAtKey: time.Now().UTC().Add(-time.Minute).Format(time.RFC3339),
+		maasTeardownRequestedAtKey: now.Add(-time.Minute).Format(time.RFC3339),
 	}
 	dep := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
@@ -387,7 +398,7 @@ func TestMaaSTeardownRequeueRetriesAfterPatchFailure(t *testing.T) {
 		return &testMaasTeardownTimer{}
 	}
 	m.maasTeardownNow = func() time.Time {
-		return time.Now().Add(maasTeardownTimeout + time.Minute)
+		return now.Add(testMaaSTeardownTimeout + time.Second)
 	}
 
 	m.scheduleMaasTeardownRequeue(cli, client.ObjectKeyFromObject(obj), time.Second)
@@ -408,7 +419,10 @@ func TestInitializeRemovedReschedulesTeardownAfterRestart(t *testing.T) {
 	g := NewWithT(t)
 
 	m := newTestModule(t)
-	requestedAt := time.Now().UTC().Add(-(maasTeardownTimeout - time.Minute)).Format(time.RFC3339)
+	m.maasTeardownTimeout = testMaaSTeardownTimeout
+	now := time.Now().UTC().Truncate(time.Second)
+	m.maasTeardownNow = func() time.Time { return now }
+	requestedAt := now.Add(-(testMaaSTeardownTimeout - testMaaSTeardownTimeout/2)).Format(time.RFC3339)
 	obj := newTestAIGateway()
 	obj.Spec.ModelsAsAService.ManagementState = removedState
 	obj.Annotations = map[string]string{
@@ -434,7 +448,7 @@ func TestInitializeRemovedReschedulesTeardownAfterRestart(t *testing.T) {
 
 	g.Expect(m.initialize(context.Background(), rr)).To(Succeed())
 	g.Expect(delay).To(BeNumerically(">", time.Duration(0)))
-	g.Expect(delay).To(BeNumerically("<=", time.Minute))
+	g.Expect(delay).To(BeNumerically("<=", testMaaSTeardownTimeout/2))
 
 	stored := &componentApi.AIGateway{}
 	g.Expect(rr.Client.Get(context.Background(), types.NamespacedName{Name: obj.Name}, stored)).To(Succeed())
@@ -445,10 +459,13 @@ func TestInitializeManagedClearsTeardownDeadline(t *testing.T) {
 	g := NewWithT(t)
 
 	m := newTestModule(t)
+	m.maasTeardownTimeout = testMaaSTeardownTimeout
+	now := time.Now().UTC().Truncate(time.Second)
+	m.maasTeardownNow = func() time.Time { return now }
 	obj := newTestAIGateway()
 	obj.Spec.ModelsAsAService.ManagementState = managedState
 	obj.Annotations = map[string]string{
-		maasTeardownRequestedAtKey: time.Now().UTC().Add(-(maasTeardownTimeout + time.Minute)).Format(time.RFC3339),
+		maasTeardownRequestedAtKey: now.Add(-(testMaaSTeardownTimeout + time.Second)).Format(time.RFC3339),
 	}
 	rr := newTestRR(obj)
 	timer := &testMaasTeardownTimer{}
@@ -874,10 +891,13 @@ func TestMaasAwareGCPredicateAllowsMaaSResourcesAfterTeardownDeadline(t *testing
 	g := NewWithT(t)
 
 	m := newTestModule(t)
+	m.maasTeardownTimeout = testMaaSTeardownTimeout
+	now := time.Now().UTC().Truncate(time.Second)
+	m.maasTeardownNow = func() time.Time { return now }
 	obj := newTestAIGateway()
 	obj.Spec.ModelsAsAService.ManagementState = removedState
 	obj.Annotations = map[string]string{
-		maasTeardownRequestedAtKey: time.Now().UTC().Add(-(maasTeardownTimeout + time.Minute)).Format(time.RFC3339),
+		maasTeardownRequestedAtKey: now.Add(-(testMaaSTeardownTimeout + time.Second)).Format(time.RFC3339),
 	}
 	obj.UID = "test-uid"
 	obj.Generation = 3

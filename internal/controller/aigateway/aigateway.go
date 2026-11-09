@@ -172,6 +172,7 @@ type Module struct {
 	maasTeardownTimer               maasTeardownTimer
 	maasTeardownAfter               func(time.Duration, func()) maasTeardownTimer
 	maasTeardownNow                 func() time.Time
+	maasTeardownTimeout             time.Duration
 }
 
 // NewModule creates a Module with one-shot computed state.
@@ -251,7 +252,8 @@ func NewModule(cfg *moduleconfig.Config) (*Module, error) {
 		maasTeardownAfter: func(delay time.Duration, action func()) maasTeardownTimer {
 			return time.AfterFunc(delay, action)
 		},
-		maasTeardownNow: time.Now,
+		maasTeardownNow:     time.Now,
+		maasTeardownTimeout: defaultMaaSTeardownTimeout,
 	}, nil
 }
 

@@ -32,9 +32,9 @@ const (
 	maasCRDComponentLabelValue             = "models-as-a-service"
 	aiGatewayControllerComponentLabelValue = "ai-gateway-controller"
 
-	maasGCPredicateTimeout = 10 * time.Second
-	maasTeardownTimeout    = 8 * time.Minute
-	maasTeardownRetryDelay = 5 * time.Second
+	maasGCPredicateTimeout     = 10 * time.Second
+	defaultMaaSTeardownTimeout = 8 * time.Minute
+	maasTeardownRetryDelay     = 5 * time.Second
 )
 
 type maasTeardownTimer interface {
@@ -217,7 +217,7 @@ func (m *Module) ensureMaasTeardownDeadline(ctx context.Context, rr *odhtypes.Re
 	if value, ok := annotations[maasTeardownRequestedAtKey]; ok {
 		requestedAt, err := time.Parse(time.RFC3339, value)
 		if err == nil {
-			deadline := requestedAt.Add(maasTeardownTimeout)
+			deadline := requestedAt.Add(m.maasTeardownTimeout)
 			deadlineReached := !deadline.After(m.maasTeardownNow())
 			if !deadlineReached {
 				m.scheduleMaasTeardownRequeue(rr.Client, client.ObjectKeyFromObject(obj), deadline.Sub(m.maasTeardownNow()))
@@ -239,7 +239,7 @@ func (m *Module) ensureMaasTeardownDeadline(ctx context.Context, rr *odhtypes.Re
 	if err := rr.Client.Patch(ctx, obj, client.MergeFrom(before)); err != nil {
 		return false, fmt.Errorf("annotate AIGateway with MaaS teardown deadline: %w", err)
 	}
-	m.scheduleMaasTeardownRequeue(rr.Client, client.ObjectKeyFromObject(obj), maasTeardownTimeout)
+	m.scheduleMaasTeardownRequeue(rr.Client, client.ObjectKeyFromObject(obj), m.maasTeardownTimeout)
 
 	return false, nil
 }
@@ -345,7 +345,7 @@ func (m *Module) maasTeardownDeadlineReached(instance client.Object) bool {
 		return false
 	}
 
-	return !requestedAt.Add(maasTeardownTimeout).After(m.maasTeardownNow())
+	return !requestedAt.Add(m.maasTeardownTimeout).After(m.maasTeardownNow())
 }
 
 func deleteMaasConfig(ctx context.Context, cli client.Client) error {
