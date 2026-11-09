@@ -422,20 +422,14 @@ func (m *Module) overWriteCondition(ctx context.Context, rr *odhtypes.Reconcilia
 		return fmt.Errorf("instance is not an AIGateway")
 	}
 
-	if aiGridOnly(obj) {
-		return m.aiGridOnlyDeploymentsAvailable(ctx, rr)
-	}
-
-	if anySubModuleManaged(obj) {
-		return nil
-	}
-
-	if rr.Client != nil {
-		maasRemovalPending, err := m.maasRemovalPending(ctx, rr)
+	maasRemovalPending := false
+	if rr.Client != nil && obj.Spec.ModelsAsAService.ManagementState != managedState {
+		pending, err := m.maasRemovalPending(ctx, rr)
 		if err != nil {
 			return fmt.Errorf("determine MaaS removal progress: %w", err)
 		}
-		if maasRemovalPending {
+		maasRemovalPending = pending
+		if pending {
 			maasTeardownStalled, err := m.maasTeardownStalled(ctx, rr.Client)
 			if err != nil {
 				return fmt.Errorf("determine MaaS teardown progress: %w", err)
@@ -450,16 +444,26 @@ func (m *Module) overWriteCondition(ctx context.Context, rr *odhtypes.Reconcilia
 
 				return nil
 			}
-
-			rr.Conditions.MarkFalse(
-				status.ConditionDeploymentsAvailable,
-				conditions.WithSeverity(common.ConditionSeverityInfo),
-				conditions.WithReason(status.MaaSRemovalInProgressReason),
-				conditions.WithMessage("MaaS removal is in progress; waiting for remaining resources to be deleted"),
-			)
-
-			return nil
 		}
+	}
+
+	if aiGridOnly(obj) {
+		return m.aiGridOnlyDeploymentsAvailable(ctx, rr)
+	}
+
+	if anySubModuleManaged(obj) {
+		return nil
+	}
+
+	if maasRemovalPending {
+		rr.Conditions.MarkFalse(
+			status.ConditionDeploymentsAvailable,
+			conditions.WithSeverity(common.ConditionSeverityInfo),
+			conditions.WithReason(status.MaaSRemovalInProgressReason),
+			conditions.WithMessage("MaaS removal is in progress; waiting for remaining resources to be deleted"),
+		)
+
+		return nil
 	}
 
 	rr.Conditions.MarkFalse(

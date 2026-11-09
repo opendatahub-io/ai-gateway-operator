@@ -431,6 +431,54 @@ func TestOverWriteConditionMaaSRemovalStalled(t *testing.T) {
 	g.Expect(rr.Conditions.GetCondition(readyCondition).Status).To(Equal(metav1.ConditionFalse))
 }
 
+func TestOverWriteConditionMaaSRemovalStalledWithManagedSubModule(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		configure func(*componentApi.AIGateway)
+	}{
+		{
+			name: "batch gateway",
+			configure: func(obj *componentApi.AIGateway) {
+				obj.Spec.BatchGateway.ManagementState = managedState
+			},
+		},
+		{
+			name: "aiGrid",
+			configure: func(obj *componentApi.AIGateway) {
+				obj.Spec.AIGrid.ManagementState = managedState
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			g := NewWithT(t)
+
+			m := newTestModuleWithNamespace(t, "opendatahub")
+			obj := newTestAIGateway()
+			obj.Spec.ModelsAsAService.ManagementState = removedState
+			tc.configure(obj)
+			rr := newSubModuleRR(t, obj, &appsv1.Deployment{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      maasControllerDeploymentName,
+					Namespace: "opendatahub",
+					Annotations: map[string]string{
+						maasTeardownRequestedKey: "true",
+					},
+				},
+			})
+			rr.Conditions.MarkTrue(status.ConditionDeploymentsAvailable)
+
+			g.Expect(m.overWriteCondition(context.Background(), rr)).To(Succeed())
+
+			deployments := rr.Conditions.GetCondition(status.ConditionDeploymentsAvailable)
+			g.Expect(deployments).NotTo(BeNil())
+			g.Expect(deployments.Status).To(Equal(metav1.ConditionFalse))
+			g.Expect(deployments.Severity).To(Equal(common.ConditionSeverityError))
+			g.Expect(deployments.Reason).To(Equal(status.MaaSRemovalStalledReason))
+			g.Expect(rr.Conditions.GetCondition(readyCondition).Status).To(Equal(metav1.ConditionFalse))
+		})
+	}
+}
+
 // TestReportSubModuleStatus_BothManaged_IndependentConditions verifies that conditions
 // are independent: if maas-controller/ai-gateway-controller are ready and batch-gateway
 // is not, ModelsAsAServiceReady=True and BatchGatewayReady=False simultaneously.
