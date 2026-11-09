@@ -46,7 +46,7 @@ import (
 
 const (
 	timeout      = 90 * time.Second
-	setupTimeout = 5 * time.Minute // for TestMain polls: allows image pulls and slow reconciles
+	setupTimeout = 10 * time.Minute // for TestMain polls: allows image pulls and slow reconciles
 	interval     = 2 * time.Second
 
 	labelPartOf            = "platform.opendatahub.io/part-of"

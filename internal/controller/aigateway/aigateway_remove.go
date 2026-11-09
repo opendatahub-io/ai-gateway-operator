@@ -33,7 +33,7 @@ const (
 	aiGatewayControllerComponentLabelValue = "ai-gateway-controller"
 
 	maasGCPredicateTimeout = 10 * time.Second
-	maasTeardownTimeout    = 2 * time.Minute
+	maasTeardownTimeout    = 8 * time.Minute
 	maasTeardownRetryDelay = 5 * time.Second
 )
 
