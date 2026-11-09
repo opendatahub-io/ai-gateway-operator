@@ -24,6 +24,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	. "github.com/onsi/gomega"
 	"github.com/opendatahub-io/opendatahub-operator/v2/api/common"
@@ -31,6 +32,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	extv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -41,6 +43,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	componentApi "github.com/opendatahub-io/ai-gateway-operator/api/components/v1alpha1"
 	moduleconfig "github.com/opendatahub-io/ai-gateway-operator/pkg/config"
@@ -49,6 +52,7 @@ import (
 	"github.com/opendatahub-io/opendatahub-operator/v2/pkg/cluster"
 	"github.com/opendatahub-io/opendatahub-operator/v2/pkg/cluster/gvk"
 	"github.com/opendatahub-io/opendatahub-operator/v2/pkg/controller/conditions"
+	odhpredicates "github.com/opendatahub-io/opendatahub-operator/v2/pkg/controller/predicates"
 	odhtypes "github.com/opendatahub-io/opendatahub-operator/v2/pkg/controller/types"
 	"github.com/opendatahub-io/opendatahub-operator/v2/pkg/manifests/kustomize"
 	odhAnnotations "github.com/opendatahub-io/opendatahub-operator/v2/pkg/metadata/annotations"
@@ -216,7 +220,7 @@ func TestInitializeRemovedKeepsMaaSWhileCleanupPending(t *testing.T) {
 
 	rr.Client = fake.NewClientBuilder().
 		WithScheme(newTestScheme(t)).
-		WithObjects(dep).
+		WithObjects(obj, dep).
 		Build()
 
 	g.Expect(m.initialize(context.Background(), rr)).To(Succeed())
@@ -247,11 +251,232 @@ func TestInitializeRemovedExcludesMaaSOnceTeardownCompleted(t *testing.T) {
 
 	rr.Client = fake.NewClientBuilder().
 		WithScheme(newTestScheme(t)).
-		WithObjects(dep).
+		WithObjects(obj, dep).
 		Build()
 
 	g.Expect(m.initialize(context.Background(), rr)).To(Succeed())
 	g.Expect(rr.Manifests).To(BeEmpty())
+}
+
+func TestInitializeRemovedExpiresTeardownAndDeletesConfig(t *testing.T) {
+	g := NewWithT(t)
+
+	m := newTestModule(t)
+	obj := newTestAIGateway()
+	obj.Spec.ModelsAsAService.ManagementState = removedState
+	obj.Annotations = map[string]string{
+		maasTeardownRequestedAtKey: time.Now().UTC().Add(-3 * time.Minute).Format(time.RFC3339),
+	}
+	rr := newTestRR(obj)
+
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      maasControllerDeploymentName,
+			Namespace: m.cfg.ApplicationsNamespace,
+			Annotations: map[string]string{
+				maasTeardownRequestedKey: "true",
+			},
+		},
+	}
+	rr.Client = fake.NewClientBuilder().
+		WithScheme(newTestScheme(t)).
+		WithObjects(obj, dep, maasConfigObject("", "")).
+		Build()
+
+	g.Expect(m.initialize(context.Background(), rr)).To(Succeed())
+	g.Expect(rr.Manifests).To(BeEmpty())
+
+	cfg := &unstructured.Unstructured{}
+	cfg.SetGroupVersionKind(maasConfigGVK)
+	cfg.SetName(maasConfigName)
+	err := rr.Client.Get(context.Background(), types.NamespacedName{Name: maasConfigName}, cfg)
+	g.Expect(k8serr.IsNotFound(err)).To(BeTrue(), "Config/default should be deleted after the teardown deadline")
+}
+
+func TestInitializeRemovedSchedulesTeardownRequeue(t *testing.T) {
+	g := NewWithT(t)
+
+	m := newTestModule(t)
+	obj := newTestAIGateway()
+	obj.Spec.ModelsAsAService.ManagementState = removedState
+	rr := newTestRR(obj)
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      maasControllerDeploymentName,
+			Namespace: m.cfg.ApplicationsNamespace,
+		},
+	}
+	rr.Client = fake.NewClientBuilder().
+		WithScheme(newTestScheme(t)).
+		WithObjects(obj, dep).
+		Build()
+
+	timer := &testMaasTeardownTimer{}
+	var action func()
+	var delay time.Duration
+	m.maasTeardownAfter = func(value time.Duration, scheduledAction func()) maasTeardownTimer {
+		delay = value
+		action = scheduledAction
+		return timer
+	}
+
+	g.Expect(m.initialize(context.Background(), rr)).To(Succeed())
+	g.Expect(delay).To(BeNumerically(">", time.Minute))
+	g.Expect(delay).To(BeNumerically("<=", maasTeardownTimeout))
+	m.maasTeardownNow = func() time.Time {
+		return time.Now().Add(maasTeardownTimeout + time.Minute)
+	}
+
+	before := &componentApi.AIGateway{}
+	g.Expect(rr.Client.Get(context.Background(), types.NamespacedName{Name: obj.Name}, before)).To(Succeed())
+
+	action()
+
+	after := &componentApi.AIGateway{}
+	g.Expect(rr.Client.Get(context.Background(), types.NamespacedName{Name: obj.Name}, after)).To(Succeed())
+	g.Expect(after.Annotations).To(HaveKey(maasTeardownRequeuedAtKey))
+	g.Expect(odhpredicates.DefaultPredicate.Update(event.UpdateEvent{
+		ObjectOld: before,
+		ObjectNew: after,
+	})).To(BeTrue())
+	g.Expect(timer.stopped).To(BeFalse())
+}
+
+func TestMaaSTeardownRequeueRetriesAfterPatchFailure(t *testing.T) {
+	g := NewWithT(t)
+
+	m := newTestModule(t)
+	obj := newTestAIGateway()
+	obj.Spec.ModelsAsAService.ManagementState = removedState
+	obj.Annotations = map[string]string{
+		maasTeardownRequestedAtKey: time.Now().UTC().Add(-time.Minute).Format(time.RFC3339),
+	}
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      maasControllerDeploymentName,
+			Namespace: m.cfg.ApplicationsNamespace,
+		},
+	}
+
+	patchAttempts := 0
+	cli := fake.NewClientBuilder().
+		WithScheme(newTestScheme(t)).
+		WithObjects(obj, dep).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Patch: func(
+				ctx context.Context,
+				c client.WithWatch,
+				obj client.Object,
+				patch client.Patch,
+				opts ...client.PatchOption,
+			) error {
+				patchAttempts++
+				if patchAttempts == 1 {
+					return fmt.Errorf("transient patch failure")
+				}
+				return c.Patch(ctx, obj, patch, opts...)
+			},
+		}).
+		Build()
+
+	var actions []func()
+	var delays []time.Duration
+	m.maasTeardownAfter = func(delay time.Duration, action func()) maasTeardownTimer {
+		delays = append(delays, delay)
+		actions = append(actions, action)
+		return &testMaasTeardownTimer{}
+	}
+	m.maasTeardownNow = func() time.Time {
+		return time.Now().Add(maasTeardownTimeout + time.Minute)
+	}
+
+	m.scheduleMaasTeardownRequeue(cli, client.ObjectKeyFromObject(obj), time.Second)
+	actions[0]()
+
+	g.Expect(patchAttempts).To(Equal(1))
+	g.Expect(delays).To(Equal([]time.Duration{time.Second, maasTeardownRetryDelay}))
+
+	actions[1]()
+
+	g.Expect(patchAttempts).To(Equal(2))
+	updated := &componentApi.AIGateway{}
+	g.Expect(cli.Get(context.Background(), client.ObjectKeyFromObject(obj), updated)).To(Succeed())
+	g.Expect(updated.Annotations).To(HaveKey(maasTeardownRequeuedAtKey))
+}
+
+func TestInitializeRemovedReschedulesTeardownAfterRestart(t *testing.T) {
+	g := NewWithT(t)
+
+	m := newTestModule(t)
+	requestedAt := time.Now().UTC().Add(-time.Minute).Format(time.RFC3339)
+	obj := newTestAIGateway()
+	obj.Spec.ModelsAsAService.ManagementState = removedState
+	obj.Annotations = map[string]string{
+		maasTeardownRequestedAtKey: requestedAt,
+	}
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      maasControllerDeploymentName,
+			Namespace: m.cfg.ApplicationsNamespace,
+		},
+	}
+	rr := newTestRR(obj)
+	rr.Client = fake.NewClientBuilder().
+		WithScheme(newTestScheme(t)).
+		WithObjects(obj, dep).
+		Build()
+
+	var delay time.Duration
+	m.maasTeardownAfter = func(value time.Duration, _ func()) maasTeardownTimer {
+		delay = value
+		return &testMaasTeardownTimer{}
+	}
+
+	g.Expect(m.initialize(context.Background(), rr)).To(Succeed())
+	g.Expect(delay).To(BeNumerically(">", time.Duration(0)))
+	g.Expect(delay).To(BeNumerically("<=", time.Minute))
+
+	stored := &componentApi.AIGateway{}
+	g.Expect(rr.Client.Get(context.Background(), types.NamespacedName{Name: obj.Name}, stored)).To(Succeed())
+	g.Expect(stored.Annotations[maasTeardownRequestedAtKey]).To(Equal(requestedAt))
+}
+
+func TestInitializeManagedClearsTeardownDeadline(t *testing.T) {
+	g := NewWithT(t)
+
+	m := newTestModule(t)
+	obj := newTestAIGateway()
+	obj.Spec.ModelsAsAService.ManagementState = managedState
+	obj.Annotations = map[string]string{
+		maasTeardownRequestedAtKey: time.Now().UTC().Add(-3 * time.Minute).Format(time.RFC3339),
+	}
+	rr := newTestRR(obj)
+	timer := &testMaasTeardownTimer{}
+	m.maasTeardownTimer = timer
+	m.maasTeardownAfter = func(_ time.Duration, _ func()) maasTeardownTimer {
+		return timer
+	}
+	rr.Client = fake.NewClientBuilder().
+		WithScheme(newTestScheme(t)).
+		WithObjects(obj).
+		Build()
+
+	g.Expect(m.initialize(context.Background(), rr)).To(Succeed())
+	g.Expect(obj.Annotations).NotTo(HaveKey(maasTeardownRequestedAtKey))
+	g.Expect(timer.stopped).To(BeTrue())
+
+	stored := &componentApi.AIGateway{}
+	g.Expect(rr.Client.Get(context.Background(), types.NamespacedName{Name: obj.Name}, stored)).To(Succeed())
+	g.Expect(stored.Annotations).NotTo(HaveKey(maasTeardownRequestedAtKey))
+}
+
+type testMaasTeardownTimer struct {
+	stopped bool
+}
+
+func (t *testMaasTeardownTimer) Stop() bool {
+	t.stopped = true
+	return true
 }
 
 func TestInitializeManagedMaaS(t *testing.T) {
@@ -298,6 +523,8 @@ func TestMaaSRemovalPendingWaitsWhileControllerHasNotCompletedTeardown(t *testin
 	g := NewWithT(t)
 
 	m := newTestModule(t)
+	obj := newTestAIGateway()
+	obj.Spec.ModelsAsAService.ManagementState = removedState
 	dep := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      maasControllerDeploymentName,
@@ -308,8 +535,10 @@ func TestMaaSRemovalPendingWaitsWhileControllerHasNotCompletedTeardown(t *testin
 		WithScheme(newTestScheme(t)).
 		WithObjects(dep).
 		Build()
+	rr := newTestRR(obj)
+	rr.Client = cli
 
-	pending, err := m.maasRemovalPending(context.Background(), cli)
+	pending, err := m.maasRemovalPending(context.Background(), rr)
 	g.Expect(err).NotTo(HaveOccurred())
 	g.Expect(pending).To(BeTrue())
 }
@@ -318,6 +547,8 @@ func TestMaaSRemovalPendingWaitsForControllerDeploymentRemovalAfterCompletion(t 
 	g := NewWithT(t)
 
 	m := newTestModule(t)
+	obj := newTestAIGateway()
+	obj.Spec.ModelsAsAService.ManagementState = removedState
 	dep := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      maasControllerDeploymentName,
@@ -331,11 +562,13 @@ func TestMaaSRemovalPendingWaitsForControllerDeploymentRemovalAfterCompletion(t 
 		WithScheme(newTestScheme(t)).
 		WithObjects(dep).
 		Build()
+	rr := newTestRR(obj)
+	rr.Client = cli
 
 	// maas-controller reported completion, but its Deployment is still present
 	// (excluding it from this pass's render hasn't been garbage-collected yet);
 	// removal must not be considered done yet.
-	pending, err := m.maasRemovalPending(context.Background(), cli)
+	pending, err := m.maasRemovalPending(context.Background(), rr)
 	g.Expect(err).NotTo(HaveOccurred())
 	g.Expect(pending).To(BeTrue())
 }
@@ -344,6 +577,8 @@ func TestMaaSRemovalPendingFalseAfterControllerGoneLeavesCRDsInPlace(t *testing.
 	g := NewWithT(t)
 
 	m := newTestModule(t)
+	obj := newTestAIGateway()
+	obj.Spec.ModelsAsAService.ManagementState = removedState
 	crd := &extv1.CustomResourceDefinition{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "aitenants.maas.opendatahub.io",
@@ -356,11 +591,13 @@ func TestMaaSRemovalPendingFalseAfterControllerGoneLeavesCRDsInPlace(t *testing.
 		WithScheme(newTestScheme(t)).
 		WithRuntimeObjects(crd).
 		Build()
+	rr := newTestRR(obj)
+	rr.Client = cli
 
 	// No maas-controller Deployment at all: teardown is complete and the
 	// controller is gone, so removal is no longer pending even though the
 	// vendored CRD (never deleted by design) is still present.
-	pending, err := m.maasRemovalPending(context.Background(), cli)
+	pending, err := m.maasRemovalPending(context.Background(), rr)
 	g.Expect(err).NotTo(HaveOccurred())
 	g.Expect(pending).To(BeFalse())
 
@@ -625,6 +862,38 @@ func TestMaasAwareGCPredicateAllowsMaaSResourcesOnceTeardownCompleted(t *testing
 
 	// Same generation/UID as the AIGateway CR - the default predicate alone would
 	// treat this as still wanted, since nothing about the AIGateway spec changed.
+	candidate := notStaleCandidate(obj, rr)
+	candidate.SetLabels(map[string]string{maasCRDComponentLabelKey: maasCRDComponentLabelValue})
+
+	deletable, err := m.maasAwareGCPredicate(rr, candidate)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(deletable).To(BeTrue())
+}
+
+func TestMaasAwareGCPredicateAllowsMaaSResourcesAfterTeardownDeadline(t *testing.T) {
+	g := NewWithT(t)
+
+	m := newTestModule(t)
+	obj := newTestAIGateway()
+	obj.Spec.ModelsAsAService.ManagementState = removedState
+	obj.Annotations = map[string]string{
+		maasTeardownRequestedAtKey: time.Now().UTC().Add(-3 * time.Minute).Format(time.RFC3339),
+	}
+	obj.UID = "test-uid"
+	obj.Generation = 3
+	rr := newTestRR(obj)
+
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      maasControllerDeploymentName,
+			Namespace: m.cfg.ApplicationsNamespace,
+			Annotations: map[string]string{
+				maasTeardownRequestedKey: "true",
+			},
+		},
+	}
+	rr.Client = fake.NewClientBuilder().WithScheme(newTestScheme(t)).WithObjects(dep).Build()
+
 	candidate := notStaleCandidate(obj, rr)
 	candidate.SetLabels(map[string]string{maasCRDComponentLabelKey: maasCRDComponentLabelValue})
 

@@ -24,6 +24,8 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -166,6 +168,10 @@ type Module struct {
 	aiGatewayControllerManifestInfo odhtypes.ManifestInfo
 	aiGridManifestInfo              odhtypes.ManifestInfo
 	aiGridOperatorManifestInfo      odhtypes.ManifestInfo
+	maasTeardownMu                  sync.Mutex
+	maasTeardownTimer               maasTeardownTimer
+	maasTeardownAfter               func(time.Duration, func()) maasTeardownTimer
+	maasTeardownNow                 func() time.Time
 }
 
 // NewModule creates a Module with one-shot computed state.
@@ -242,6 +248,10 @@ func NewModule(cfg *moduleconfig.Config) (*Module, error) {
 		aiGatewayControllerManifestInfo: aiGatewayControllerMI,
 		aiGridManifestInfo:              aiGridMI,
 		aiGridOperatorManifestInfo:      aiGridOperatorMI,
+		maasTeardownAfter: func(delay time.Duration, action func()) maasTeardownTimer {
+			return time.AfterFunc(delay, action)
+		},
+		maasTeardownNow: time.Now,
 	}, nil
 }
 
@@ -275,6 +285,12 @@ func (m *Module) initialize(ctx context.Context, rr *odhtypes.ReconciliationRequ
 			return fmt.Errorf("ensure namespace %s: %w", gridNs, err)
 		}
 		rr.Manifests = append(rr.Manifests, m.aiGridManifestInfo)
+	}
+
+	if obj.Spec.ModelsAsAService.ManagementState != removedState {
+		if err := m.clearMaasTeardownDeadline(ctx, rr); err != nil {
+			return err
+		}
 	}
 
 	keepMaaSInstalled := obj.Spec.ModelsAsAService.ManagementState == managedState
@@ -413,11 +429,26 @@ func (m *Module) overWriteCondition(ctx context.Context, rr *odhtypes.Reconcilia
 	}
 
 	if rr.Client != nil {
-		maasRemovalPending, err := m.maasRemovalPending(ctx, rr.Client)
+		maasRemovalPending, err := m.maasRemovalPending(ctx, rr)
 		if err != nil {
 			return fmt.Errorf("determine MaaS removal progress: %w", err)
 		}
 		if maasRemovalPending {
+			maasTeardownStalled, err := m.maasTeardownStalled(ctx, rr.Client)
+			if err != nil {
+				return fmt.Errorf("determine MaaS teardown progress: %w", err)
+			}
+			if maasTeardownStalled {
+				rr.Conditions.MarkFalse(
+					status.ConditionDeploymentsAvailable,
+					conditions.WithSeverity(common.ConditionSeverityError),
+					conditions.WithReason(status.MaaSRemovalStalledReason),
+					conditions.WithMessage("MaaS removal is stalled waiting for maas-controller teardown completion"),
+				)
+
+				return nil
+			}
+
 			rr.Conditions.MarkFalse(
 				status.ConditionDeploymentsAvailable,
 				conditions.WithSeverity(common.ConditionSeverityInfo),
@@ -614,12 +645,25 @@ func (m *Module) reportSubModuleStatus(ctx context.Context, rr *odhtypes.Reconci
 			)
 		}
 	} else {
-		rr.Conditions.MarkFalse(
-			status.ConditionModelsAsAServiceReady,
-			conditions.WithSeverity(common.ConditionSeverityInfo),
-			conditions.WithReason(status.SubModuleRemovedReason),
-			conditions.WithMessage("modelsAsAService ManagementState is Removed"),
-		)
+		maasTeardownStalled, err := m.maasTeardownStalled(ctx, rr.Client)
+		if err != nil {
+			return fmt.Errorf("determine MaaS teardown progress: %w", err)
+		}
+		if maasTeardownStalled {
+			rr.Conditions.MarkFalse(
+				status.ConditionModelsAsAServiceReady,
+				conditions.WithSeverity(common.ConditionSeverityError),
+				conditions.WithReason(status.MaaSRemovalStalledReason),
+				conditions.WithMessage("modelsAsAService removal is stalled waiting for maas-controller teardown completion"),
+			)
+		} else {
+			rr.Conditions.MarkFalse(
+				status.ConditionModelsAsAServiceReady,
+				conditions.WithSeverity(common.ConditionSeverityInfo),
+				conditions.WithReason(status.SubModuleRemovedReason),
+				conditions.WithMessage("modelsAsAService ManagementState is Removed"),
+			)
+		}
 	}
 
 	// TenantsHealthy — mirrors the TenantsHealthy condition from Config/default status.
