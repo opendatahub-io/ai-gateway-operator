@@ -178,7 +178,7 @@ declare -A COMPONENTS=(
     [batchgateway]="llm-d-batch-gateway-operator|config|main@93f1c2c021a7ebae6f44c9e1dd05d7c9a34a46e8|rhoai-3.6@78d18986737c98f2ffad511fb48d63d67572c1c1"
     [maascontroller]="models-as-a-service|deployment/base/maas-controller|stable@739b539b9fd30e9d81e1c25ee54a4318c6f833ba|rhoai-3.6@8d54de3cbbfbfdde1da0b9275c4db5124c19c6cc"
     [aigatewaycontroller]="ai-gateway-controller|config/self|stable@c65f13b1f76fc9d27aa6c1c9652bfadabd78062a|rhoai-3.6@787add45725e9ac2a8b38e7c759087f29e2cd28c"
-    [aigrid]="praxis-ai-grid-operator|deploy|main@a838040590e84ec0f394211e848ea9b29eb4ee7a|rhoai-3.6@c863e173049a921160843237b6b03818eaa12b1b"
+    [aigrid]="praxis-ai-grid-operator|deploy|main@13d0b4c9d609e95bd497b3bc170fd4da99ef67a2|rhoai-3.6@c863e173049a921160843237b6b03818eaa12b1b"
 )
 
 for component_name in "${!COMPONENTS[@]}"; do
