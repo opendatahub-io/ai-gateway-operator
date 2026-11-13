@@ -32,7 +32,10 @@ rules:
   resources: ["aitenants"]
   verbs: ["get", "list", "watch"]
 # Read and watch subscriptions and model refs so a guardrail list change
-# updates the tenant. This controller does not write them.
+# updates the tenant. This controller does not write them. Without cluster-wide
+# list/watch, controller-runtime's informers cannot sync and the manager exits
+# (CrashLoopBackOff), which surfaces as AIGatewayReady flapping on DSC (see
+# RHOAIENG-102685).
 - apiGroups: ["maas.opendatahub.io"]
   resources: ["maassubscriptions", "maasmodelrefs"]
   verbs: ["get", "list", "watch"]
