@@ -75,13 +75,21 @@ func TestDeleteLegacyMaasControllerPodMonitor(t *testing.T) {
 		return c.Update(ctx, live)
 	}
 
+	refuseDelete := func(context.Context, client.WithWatch, client.Object, ...client.DeleteOption) error {
+		return k8serr.NewForbidden(gvk.CoreosPodMonitor.GroupVersion().WithResource("podmonitors").GroupResource(),
+			maasControllerLegacyPodMonitorName, errors.New("denied"))
+	}
+
 	tests := []struct {
 		name      string
 		maasState string // empty: Managed
 		existing  *unstructured.Unstructured
 		get       getFunc
+		del       func(context.Context, client.WithWatch, client.Object, ...client.DeleteOption) error
+		// cacheOnly fails reads through the reconciliation client, so the cleanup
+		// must read through the module's uncached reader.
+		cacheOnly bool
 		wantKept  bool
-		wantErr   bool
 	}{
 		{name: "deletes the leftover", existing: legacy(nil)},
 		{name: "keeps one with an HTTPS endpoint", existing: legacy(setSpec([]any{map[string]any{"port": "metrics", "scheme": "HTTPS"}}, "podMetricsEndpoints")), wantKept: true},
@@ -93,7 +101,9 @@ func TestDeleteLegacyMaasControllerPodMonitor(t *testing.T) {
 		{name: "keeps it when it changed after the read", existing: legacy(nil), get: racingGet, wantKept: true},
 		{name: "tolerates a missing PodMonitor"},
 		{name: "tolerates a missing PodMonitor CRD", get: failGet(&apimeta.NoKindMatchError{GroupKind: gvk.CoreosPodMonitor.GroupKind()})},
-		{name: "returns other read errors", get: failGet(errors.New("boom")), wantErr: true},
+		{name: "logs other read errors without failing the reconcile", get: failGet(errors.New("boom"))},
+		{name: "logs a refused delete without failing the reconcile", existing: legacy(nil), del: refuseDelete, wantKept: true},
+		{name: "reads through the uncached reader", existing: legacy(nil), cacheOnly: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -102,19 +112,17 @@ func TestDeleteLegacyMaasControllerPodMonitor(t *testing.T) {
 			if tt.existing != nil {
 				builder = builder.WithObjects(tt.existing)
 			}
-			if tt.get != nil {
-				builder = builder.WithInterceptorFuncs(interceptor.Funcs{Get: tt.get})
-			}
-			cli := builder.Build()
+			cli := builder.WithInterceptorFuncs(interceptor.Funcs{Get: tt.get, Delete: tt.del}).Build()
 			gateway := newTestAIGateway()
 			gateway.Spec.ModelsAsAService.ManagementState = cmp.Or(tt.maasState, managedState)
 
-			err := newTestModuleWithNamespace(t, odhApplicationsNS).
-				deleteLegacyMaasControllerPodMonitor(t.Context(), &odhtypes.ReconciliationRequest{Client: cli, Instance: gateway})
-			if tt.wantErr {
-				g.Expect(err).To(HaveOccurred())
-				return
+			m := newTestModuleWithNamespace(t, odhApplicationsNS)
+			rrClient := client.Client(cli)
+			if tt.cacheOnly {
+				m.apiReader = cli
+				rrClient = interceptor.NewClient(cli, interceptor.Funcs{Get: failGet(errors.New("cached read"))})
 			}
+			err := m.deleteLegacyMaasControllerPodMonitor(t.Context(), &odhtypes.ReconciliationRequest{Client: rrClient, Instance: gateway})
 			g.Expect(err).NotTo(HaveOccurred())
 			if tt.existing == nil {
 				return

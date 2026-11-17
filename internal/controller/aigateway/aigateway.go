@@ -166,6 +166,9 @@ type Module struct {
 	aiGatewayControllerManifestInfo odhtypes.ManifestInfo
 	aiGridManifestInfo              odhtypes.ManifestInfo
 	aiGridOperatorManifestInfo      odhtypes.ManifestInfo
+	// apiReader reads past the manager cache, for one-off lookups that must not
+	// start an informer. Nil falls back to the reconciliation client.
+	apiReader client.Reader
 }
 
 // NewModule creates a Module with one-shot computed state.

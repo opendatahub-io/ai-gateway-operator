@@ -19,7 +19,6 @@ package aigateway
 import (
 	"context"
 	"errors"
-	"fmt"
 	"reflect"
 	"strings"
 
@@ -44,7 +43,10 @@ const maasControllerLegacyPodMonitorName = "maas-controller-metrics"
 // upgrade leaves it behind, scraping the now-HTTPS metrics port over plain HTTP:
 // TargetDown fires and maas-controller logs a TLS handshake error every 30s. It runs on
 // every reconcile rather than from upgrade(), which fires only when a recorded module
-// version increases; once the PodMonitor is gone it costs one cache read.
+// version increases; once the PodMonitor is gone it costs one uncached read.
+//
+// The cleanup is best effort: a failure is logged and retried on the next reconcile
+// instead of failing the reconcile, since the deploy does not depend on it.
 func (m *Module) deleteLegacyMaasControllerPodMonitor(ctx context.Context, rr *odhtypes.ReconciliationRequest) error {
 	obj, ok := rr.Instance.(*componentApi.AIGateway)
 	if !ok {
@@ -58,26 +60,33 @@ func (m *Module) deleteLegacyMaasControllerPodMonitor(ctx context.Context, rr *o
 		return errors.New("reconciliation client is nil")
 	}
 
+	// Read past the cache: through the cache this one-off lookup would start a
+	// cluster-wide PodMonitor informer that lives as long as the operator.
+	reader := client.Reader(rr.Client)
+	if m.apiReader != nil {
+		reader = m.apiReader
+	}
+	log := logf.FromContext(ctx)
 	pm := &unstructured.Unstructured{}
 	pm.SetGroupVersionKind(gvk.CoreosPodMonitor)
 	key := client.ObjectKey{Namespace: m.cfg.ApplicationsNamespace, Name: maasControllerLegacyPodMonitorName}
-	if err := rr.Client.Get(ctx, key, pm); err != nil {
+	if err := reader.Get(ctx, key, pm); err != nil {
 		// NoMatch: without the PodMonitor CRD there is nothing to clean up.
-		if k8serr.IsNotFound(err) || apimeta.IsNoMatchError(err) {
-			return nil
+		if !k8serr.IsNotFound(err) && !apimeta.IsNoMatchError(err) {
+			log.Error(err, "reading the maas-controller PodMonitor left over from RHOAI 3.5; retrying on the next reconcile", "podMonitor", key)
 		}
-		return fmt.Errorf("get PodMonitor %s: %w", key, err)
+		return nil
 	}
 	if !isLegacyMaasControllerPodMonitor(pm) || pm.GetAnnotations()[odhannotations.ManagedByODHOperator] == "false" {
 		return nil
 	}
 
-	logf.FromContext(ctx).Info("deleting the maas-controller PodMonitor left over from RHOAI 3.5", "podMonitor", key)
+	log.Info("deleting the maas-controller PodMonitor left over from RHOAI 3.5", "podMonitor", key)
 	// As in migrateMaasControllerSelector, never delete an object other than the one
 	// just checked (CWE-367); a Conflict leaves it for the next reconcile.
 	preconditions := &client.Preconditions{UID: new(pm.GetUID()), ResourceVersion: new(pm.GetResourceVersion())}
 	if err := rr.Client.Delete(ctx, pm, preconditions); err != nil && !k8serr.IsNotFound(err) && !k8serr.IsConflict(err) {
-		return fmt.Errorf("delete PodMonitor %s: %w", key, err)
+		log.Error(err, "deleting the maas-controller PodMonitor left over from RHOAI 3.5; retrying on the next reconcile", "podMonitor", key)
 	}
 	return nil
 }
