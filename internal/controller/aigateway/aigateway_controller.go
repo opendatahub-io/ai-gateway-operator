@@ -245,6 +245,7 @@ func NewReconciler(
 		WithAction(m.renderAIGridOperator).
 		WithAction(m.annotateResource).
 		WithAction(m.migrateSelector).
+		WithAction(m.deleteLegacyMaasControllerPodMonitor).
 		WithAction(deploy.NewAction(
 			deploy.WithCache(),
 			deploy.WithApplyOrder(),
