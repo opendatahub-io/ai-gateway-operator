@@ -64,15 +64,19 @@ jobs:
       #    aigateway.opendatahub.io (AIGuardrail)
       #  - aigrid (from praxis-ai-grid-operator): grid.praxis.fast
       #    (AgentToolProvider, GridNetwork, GridSite, InferenceProvider,
-      #    SiteInvite); the directory also holds a kustomization.yaml, which is
-      #    not a CRD and is ignored
+      #    SiteInvite), listed one by one so a CRD added by a Grid bump fails
+      #    coverage until it is reviewed and excluded here
       #  - batchgateway (from llm-d-batch-gateway-operator): batch.llm-d.ai
       #    (LLMBatchGateway)
       #  - maascontroller (from models-as-a-service): maas.opendatahub.io and
       #    inference.opendatahub.io (ExternalModel, ExternalProvider)
       crd-exclude-globs: >-
         config/manifests/aigatewaycontroller/crd/bases/*.yaml
-        config/manifests/aigrid/crds/*.yaml
+        config/manifests/aigrid/crds/agenttoolprovider.yaml
+        config/manifests/aigrid/crds/gridnetwork.yaml
+        config/manifests/aigrid/crds/gridsite.yaml
+        config/manifests/aigrid/crds/inferenceprovider.yaml
+        config/manifests/aigrid/crds/siteinvite.yaml
         config/manifests/batchgateway/crd/bases/*.yaml
         config/manifests/maascontroller/crd/bases/*.yaml
       baseline-refs: 0e56970e8d41c4867e25e2830203e58b4135c50e # RHOAI 3.6 release base
