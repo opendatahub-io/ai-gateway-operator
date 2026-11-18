@@ -246,11 +246,12 @@ func NewReconciler(
 		WithAction(m.renderAIGridOperator).
 		WithAction(m.annotateResource).
 		WithAction(m.migrateSelector).
-		WithAction(m.deleteLegacyMaasControllerPodMonitor).
 		WithAction(deploy.NewAction(
 			deploy.WithCache(),
 			deploy.WithApplyOrder(),
 		)).
+		// After deploy, so a failed upgrade keeps the old scrape configuration.
+		WithAction(m.deleteLegacyMaasControllerPodMonitor).
 		WithAction(deployments.NewAction()).
 		WithAction(m.reportSubModuleStatus).
 		WithAction(m.overWriteCondition).

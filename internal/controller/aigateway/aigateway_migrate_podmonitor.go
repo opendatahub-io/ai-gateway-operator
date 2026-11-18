@@ -24,6 +24,7 @@ import (
 
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -60,17 +61,13 @@ func (m *Module) deleteLegacyMaasControllerPodMonitor(ctx context.Context, rr *o
 		return errors.New("reconciliation client is nil")
 	}
 
-	// Read past the cache: through the cache this one-off lookup would start a
-	// cluster-wide PodMonitor informer that lives as long as the operator.
-	reader := client.Reader(rr.Client)
-	if m.apiReader != nil {
-		reader = m.apiReader
-	}
 	log := logf.FromContext(ctx)
 	pm := &unstructured.Unstructured{}
 	pm.SetGroupVersionKind(gvk.CoreosPodMonitor)
 	key := client.ObjectKey{Namespace: m.cfg.ApplicationsNamespace, Name: maasControllerLegacyPodMonitorName}
-	if err := reader.Get(ctx, key, pm); err != nil {
+	// Through the cache this one-off lookup would start a cluster-wide PodMonitor
+	// informer that lives as long as the operator.
+	if err := m.apiReader.Get(ctx, key, pm); err != nil {
 		// NoMatch: without the PodMonitor CRD there is nothing to clean up.
 		if !k8serr.IsNotFound(err) && !apimeta.IsNoMatchError(err) {
 			log.Error(err, "reading the maas-controller PodMonitor left over from RHOAI 3.5; retrying on the next reconcile", "podMonitor", key)
@@ -92,17 +89,33 @@ func (m *Module) deleteLegacyMaasControllerPodMonitor(ctx context.Context, rr *o
 }
 
 // isLegacyMaasControllerPodMonitor reports whether pm has the shape the old bundle
-// shipped: exactly its pod selector and no HTTPS endpoint, so a PodMonitor a user
-// created on purpose is kept. Labels are not compared: the render rewrites them.
+// shipped: its pod selector and one plain-HTTP endpoint on port metrics, path
+// /metrics, and no owner but an AIGateway, so a PodMonitor a user created or
+// customized is kept. Labels and the scrape interval are not compared: the render
+// rewrites labels, and the interval does not change what is scraped.
 func isLegacyMaasControllerPodMonitor(pm *unstructured.Unstructured) bool {
-	selector, _, _ := unstructured.NestedFieldNoCopy(pm.Object, "spec", "selector")
-	if !reflect.DeepEqual(selector, map[string]any{"matchLabels": map[string]any{"control-plane": "maas-controller"}}) {
+	if owner := metav1.GetControllerOf(pm); owner != nil && owner.Kind != componentApi.AIGatewayKind {
 		return false
 	}
-	endpoints, _, _ := unstructured.NestedSlice(pm.Object, "spec", "podMetricsEndpoints")
-	for _, raw := range endpoints {
-		endpoint, ok := raw.(map[string]any)
-		if scheme, _ := endpoint["scheme"].(string); !ok || strings.EqualFold(scheme, "https") {
+	spec, _, _ := unstructured.NestedMap(pm.Object, "spec")
+	if len(spec) != 2 || !reflect.DeepEqual(spec["selector"], map[string]any{"matchLabels": map[string]any{"control-plane": "maas-controller"}}) {
+		return false
+	}
+	endpoints, _ := spec["podMetricsEndpoints"].([]any)
+	if len(endpoints) != 1 {
+		return false
+	}
+	endpoint, _ := endpoints[0].(map[string]any)
+	if endpoint["port"] != "metrics" {
+		return false
+	}
+	for key, value := range endpoint {
+		text, _ := value.(string)
+		switch {
+		case key == "port", key == "interval":
+		case key == "path" && (text == "" || text == "/metrics"):
+		case key == "scheme" && (text == "" || strings.EqualFold(text, "http")):
+		default:
 			return false
 		}
 	}

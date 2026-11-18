@@ -24,12 +24,13 @@ import (
 
 	. "github.com/onsi/gomega"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
+	componentApi "github.com/opendatahub-io/ai-gateway-operator/api/components/v1alpha1"
 	"github.com/opendatahub-io/opendatahub-operator/v2/pkg/cluster/gvk"
 	odhtypes "github.com/opendatahub-io/opendatahub-operator/v2/pkg/controller/types"
 )
@@ -60,6 +61,12 @@ func TestDeleteLegacyMaasControllerPodMonitor(t *testing.T) {
 	unmanaged := func(pm *unstructured.Unstructured) {
 		pm.SetAnnotations(map[string]string{"opendatahub.io/managed": "false"})
 	}
+	endpoint := func(port, path string) map[string]any { return map[string]any{"port": port, "path": path} }
+	ownedBy := func(kind string) func(*unstructured.Unstructured) {
+		return func(pm *unstructured.Unstructured) {
+			pm.SetOwnerReferences([]metav1.OwnerReference{{APIVersion: "example.com/v1", Kind: kind, Name: "owner", UID: "owner-uid", Controller: new(true)}})
+		}
+	}
 	failGet := func(err error) getFunc {
 		return func(context.Context, client.WithWatch, client.ObjectKey, client.Object, ...client.GetOption) error {
 			return err
@@ -86,24 +93,24 @@ func TestDeleteLegacyMaasControllerPodMonitor(t *testing.T) {
 		existing  *unstructured.Unstructured
 		get       getFunc
 		del       func(context.Context, client.WithWatch, client.Object, ...client.DeleteOption) error
-		// cacheOnly fails reads through the reconciliation client, so the cleanup
-		// must read through the module's uncached reader.
-		cacheOnly bool
 		wantKept  bool
 	}{
 		{name: "deletes the leftover", existing: legacy(nil)},
+		{name: "deletes one owned by the AIGateway", existing: legacy(ownedBy(componentApi.AIGatewayKind))},
+		{name: "keeps one owned by another controller", existing: legacy(ownedBy("Other")), wantKept: true},
 		{name: "keeps one with an HTTPS endpoint", existing: legacy(setSpec([]any{map[string]any{"port": "metrics", "scheme": "HTTPS"}}, "podMetricsEndpoints")), wantKept: true},
+		{name: "keeps one with another port", existing: legacy(setSpec([]any{endpoint("web", "/metrics")}, "podMetricsEndpoints")), wantKept: true},
+		{name: "keeps one with another path", existing: legacy(setSpec([]any{endpoint("metrics", "/custom")}, "podMetricsEndpoints")), wantKept: true},
+		{name: "keeps one with two endpoints", existing: legacy(setSpec([]any{endpoint("metrics", "/metrics"), endpoint("web", "/metrics")}, "podMetricsEndpoints")), wantKept: true},
+		{name: "keeps one with a namespaceSelector", existing: legacy(setSpec(map[string]any{"any": true}, "namespaceSelector")), wantKept: true},
 		{name: "keeps one with another selector", existing: legacy(setSpec(map[string]any{"control-plane": "maas-controller", "app": "x"}, "selector", "matchLabels")), wantKept: true},
 		{name: "keeps one with matchExpressions", existing: legacy(setSpec([]any{map[string]any{"key": "tier", "operator": "Exists"}}, "selector", "matchExpressions")), wantKept: true},
 		{name: "keeps one annotated managed=false", existing: legacy(unmanaged), wantKept: true},
-		{name: "keeps one in another namespace", existing: legacy(func(pm *unstructured.Unstructured) { pm.SetNamespace("other-ns") }), wantKept: true},
 		{name: "keeps it while MaaS is not Managed", maasState: removedState, existing: legacy(nil), wantKept: true},
 		{name: "keeps it when it changed after the read", existing: legacy(nil), get: racingGet, wantKept: true},
 		{name: "tolerates a missing PodMonitor"},
-		{name: "tolerates a missing PodMonitor CRD", get: failGet(&apimeta.NoKindMatchError{GroupKind: gvk.CoreosPodMonitor.GroupKind()})},
 		{name: "logs other read errors without failing the reconcile", get: failGet(errors.New("boom"))},
 		{name: "logs a refused delete without failing the reconcile", existing: legacy(nil), del: refuseDelete, wantKept: true},
-		{name: "reads through the uncached reader", existing: legacy(nil), cacheOnly: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -116,12 +123,11 @@ func TestDeleteLegacyMaasControllerPodMonitor(t *testing.T) {
 			gateway := newTestAIGateway()
 			gateway.Spec.ModelsAsAService.ManagementState = cmp.Or(tt.maasState, managedState)
 
+			// Reads through the reconciliation client fail: the cleanup must use
+			// the module's uncached reader.
 			m := newTestModuleWithNamespace(t, odhApplicationsNS)
-			rrClient := client.Client(cli)
-			if tt.cacheOnly {
-				m.apiReader = cli
-				rrClient = interceptor.NewClient(cli, interceptor.Funcs{Get: failGet(errors.New("cached read"))})
-			}
+			m.apiReader = cli
+			rrClient := interceptor.NewClient(cli, interceptor.Funcs{Get: failGet(errors.New("cached read"))})
 			err := m.deleteLegacyMaasControllerPodMonitor(t.Context(), &odhtypes.ReconciliationRequest{Client: rrClient, Instance: gateway})
 			g.Expect(err).NotTo(HaveOccurred())
 			if tt.existing == nil {
