@@ -20,11 +20,9 @@ name: API contract
 # https://github.com/red-hat-data-services/api-contract-tests/blob/main/docs/releasing.md
 # before changing the pin.
 #
-# Baseline: 0e56970e8d41c4867e25e2830203e58b4135c50e, the commit the RHOAI 3.6
-# release was based on: the merge base of red-hat-data-services/ai-gateway-operator
-# rhoai-3.6 and this repository's main, from
-# data/release-baselines/3.6.json in api-contract-tests (generated 2026-11-09).
-# This repository has no GA release tag (odh-v3.5-EA2 is a pre-release) and no
+# Baseline: 21cbdcd7a9ab918a212e03323076a2a0d28f42a2, the head of main when
+# this pull request was opened (2026-11-18), per the RHOAIENG-103152 rule: this
+# repository has no GA release tag (odh-v3.5-EA2 is a pre-release) and no
 # release* branch. Everything in the CRD at that commit must stay compatible.
 # Moving the baseline needs approval from someone other than the author of
 # the change.
@@ -45,7 +43,7 @@ jobs:
     uses: red-hat-data-services/api-contract-tests/.github/workflows/provider-crd-check.yml@latest
     with:
       crd-glob: config/crd/bases/*.yaml
-      baseline-refs: 0e56970e8d41c4867e25e2830203e58b4135c50e # RHOAI 3.6 release base
+      baseline-refs: 21cbdcd7a9ab918a212e03323076a2a0d28f42a2 # main when this PR was opened (2026-11-18)
       mode: enforce
 
   # Every CRD manifest in the repository must be matched by the glob above or
@@ -79,6 +77,6 @@ jobs:
         config/manifests/aigrid/crds/siteinvite.yaml
         config/manifests/batchgateway/crd/bases/*.yaml
         config/manifests/maascontroller/crd/bases/*.yaml
-      baseline-refs: 0e56970e8d41c4867e25e2830203e58b4135c50e # RHOAI 3.6 release base
+      baseline-refs: 21cbdcd7a9ab918a212e03323076a2a0d28f42a2 # main when this PR was opened (2026-11-18)
       yq-version: "4.45.1"
       mode: enforce
