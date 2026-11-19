@@ -89,18 +89,6 @@ spec:
                 key: maas-discovery-image
                 name: maas-parameters
                 optional: true
-          - name: MAAS_DISCOVERY_ENABLED
-            valueFrom:
-              configMapKeyRef:
-                key: maas-discovery-enabled
-                name: maas-parameters
-                optional: true
-          - name: MAAS_DISCOVERY_REPLICAS
-            valueFrom:
-              configMapKeyRef:
-                key: maas-discovery-replicas
-                name: maas-parameters
-                optional: true
           - name: MONITORING_NAMESPACE
             valueFrom:
               configMapKeyRef:

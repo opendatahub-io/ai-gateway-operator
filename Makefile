@@ -66,6 +66,16 @@ lint-fix: ## Run golangci-lint linter and perform fixes.
 get-manifests: ## Download component manifests.
 	./hack/scripts/get-manifests.sh
 
+.PHONY: verify-manifest-flags
+verify-manifest-flags: ## Check vendored manifest flags against the images that run with them.
+	./hack/scripts/verify-manifest-flags.sh
+
+.PHONY: update-refs-shas
+update-refs-shas: ## Bump branch@sha refs in get-manifests.sh to the tip of each branch and refresh the vendored trees (requires network).
+	@status=0; ./hack/scripts/update-manifest-shas.sh || status=$$?; \
+	./hack/scripts/get-manifests.sh || status=$$?; \
+	exit $$status
+
 .PHONY: deps
 deps: ## Tidy and verify Go module dependencies.
 	go mod tidy
@@ -73,7 +83,7 @@ deps: ## Tidy and verify Go module dependencies.
 
 .PHONY: test
 test: manifests generate fmt vet ## Run unit tests.
-	go test -ldflags "$(LDFLAGS)" $$(go list ./... | grep -v /e2e | grep -v /integration) -coverprofile cover.out
+	go test -ldflags "$(LDFLAGS)" $$(go list ./... | grep -v /integration) -coverprofile cover.out
 
 .PHONY: test-integration-run
 test-integration-run: ## Run integration tests only (cluster must be prepared).

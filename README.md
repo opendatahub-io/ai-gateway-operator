@@ -8,20 +8,32 @@ A Kubernetes operator that manages AI Gateway components for [Open Data Hub](htt
 - A Kubernetes cluster (Kind, CRC, or OpenShift)
 - `kubectl` configured to access the cluster
 
+## CI and dependency updates
+
+- GitHub Actions CI runs `govulncheck` on every push and pull request. The job is temporarily non-blocking for remaining Go stdlib findings until a newer toolchain patch is available in product base images; module dependency bumps are expected to keep non-stdlib findings clear.
+- [Dependabot](https://docs.github.com/en/code-security/dependabot) is configured via `.github/dependabot.yml` to open weekly pull requests for Go module and GitHub Actions updates.
+
 ## Documentation
 
 - **[Enabling Models as a Service](docs/enabling-models-as-a-service.md)** - Deploy and manage MaaS for multi-tenant model inference
 - **[Architecture](docs/architecture.md)** - How ai-gateway-operator manages sub-components
+- **[Contributing](CONTRIBUTING.md)** - Development setup, CI, and test ownership boundaries (AIGO / AIGC / MaaS)
 
 ## Updating Component Manifests
 
-This operator vendors manifests from sub-components into `config/manifests/`. These files are checked into the repository because the container build expects them in the source tree (`COPY config/manifests/` in the Dockerfile).
+This operator vendors manifests from sub-components into `config/manifests/`. These files are checked into the repository because the container build expects them in the source tree (`COPY config/manifests/` in the Dockerfile). Manifests can't be fetched at build time because downstream builds are isolated from network.
 
-When a sub-component's manifests change, update the vendored copy:
+Each component in `hack/scripts/get-manifests.sh` pins an ODH ref and an RHDS ref as `<branch>@<sha>`. The branch is the one whose Konflux build produces the image the manifests run with: `stable` for `maascontroller` and `aigatewaycontroller`, `main` for `batchgateway`, and the current `rhoai-3.x` release branch for RHDS. aigrid is excluded: its pins are deliberate release candidates moved by hand, and the daily workflow leaves it alone (see `SKIP_BUMP` in `hack/scripts/update-manifest-shas.sh`).
 
-1. Edit `hack/scripts/get-manifests.sh` and update the commit SHA for the component.
-2. Run `make get-manifests` to fetch the manifests at the pinned commit.
-3. Commit both `hack/scripts/get-manifests.sh` and `config/manifests/` changes together.
+A daily GitHub Actions workflow (`.github/workflows/update-manifest-shas.yml`) bumps every ref to the tip of its branch, refreshes the trees, and opens a PR. When bumping manually, commit **both** the pin change and the refreshed trees:
+
+```bash
+make update-refs-shas   # rewrite each ref to the latest commit on its branch and refresh config/manifests/<component>/
+```
+
+> **Note:** nothing in this repo sets `ODH_PLATFORM_TYPE`, so the vendored trees are in practice fetched from the ODH refs (setting that variable fetches the RHDS refs instead). RHDS refs are kept up to date but are not used for packaging yet, so a downstream-only manifest change on `rhoai-3.x` does not reach the RHOAI image until the RHDS build fetches or vendors the RHDS trees.
+
+`config/manifests/ai-gateway-operator/` is this operator's own deploy tree for opendatahub-operator (not a sub-component pin).
 
 ## References
 

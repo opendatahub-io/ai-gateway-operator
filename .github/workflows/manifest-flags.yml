@@ -1,0 +1,44 @@
+name: Manifest flags
+
+# The only way to introduce RHAI-15815 is to change a vendored manifest or the
+# pin it comes from, so the check runs on exactly those paths. Kept separate
+# from ci.yml so a manifest that is ahead of its published image does not turn
+# unrelated pull requests red.
+
+on:
+  push:
+    paths:
+      - 'config/manifests/**'
+      - 'hack/scripts/verify-manifest-flags.sh'
+      - 'hack/scripts/get-manifests.sh'
+      - '.github/workflows/manifest-flags.yml'
+  pull_request:
+    paths:
+      - 'config/manifests/**'
+      - 'hack/scripts/verify-manifest-flags.sh'
+      - 'hack/scripts/get-manifests.sh'
+      - '.github/workflows/manifest-flags.yml'
+
+permissions: {}
+
+env:
+  CONTAINER_TOOL: docker
+
+jobs:
+  verify:
+    permissions:
+      contents: read
+    name: Manifest flags vs operand images
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Asserts every flag in a vendored manager.yaml is accepted by the image
+      # that will run beside it. A pinned manifest newer than its image is the
+      # exact failure mode that crashlooped ai-gateway-controller and took the
+      # MaaS readiness chain down.
+      - name: Verify manifest flags
+        run: make verify-manifest-flags

@@ -1,0 +1,93 @@
+name: Update Manifest SHAs
+
+on:
+  schedule:
+    # Daily at 06:00 UTC (same cadence as opendatahub-operator)
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+# A manual run overlapping the cron one would race on sync/upgrade-manifest-shas.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  update-manifest-shas:
+    runs-on: ubuntu-latest
+    if: github.repository == 'opendatahub-io/ai-gateway-operator' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+    steps:
+      # Always start from main: basing a run on the open sync branch would make
+      # it the default PR base too, which create-pull-request rejects. A ref
+      # whose fetch failed simply comes back on the next run.
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # App token so the opened PR can run CI without manual approval
+      # (GITHUB_TOKEN PRs stay approval-required). Same secrets as
+      # opendatahub-operator; requires App install + secrets on this repo.
+      # Omit owner so the token is scoped to this repository only; request
+      # only what create-pull-request needs (contents + pull-requests).
+      - name: Generate GitHub App Token
+        id: generate-token
+        uses: actions/create-github-app-token@7e473efe3cb98aa54f8d4bac15400b15fad77d94 # v2.2.0
+        with:
+          app-id: ${{ secrets.ODH_RELEASE_BOT_APP_ID }}
+          private-key: ${{ secrets.ODH_RELEASE_BOT_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Update manifest SHAs
+        id: update-shas
+        run: ./hack/scripts/update-manifest-shas.sh
+
+      # Vendored trees must stay in sync with pins (image builds COPY them;
+      # downstream cannot fetch GitHub). Also keeps YAML diffs in the PR.
+      - name: Refresh vendored manifests
+        if: steps.update-shas.outputs.updates-needed == 'true'
+        run: make get-manifests
+
+      - name: Create Pull Request
+        if: steps.update-shas.outputs.updates-needed == 'true'
+        uses: peter-evans/create-pull-request@271a8d0340265f705b14b6d32b9829c1cb33d45e # v7.0.8
+        id: create-pr
+        with:
+          token: ${{ steps.generate-token.outputs.token }}
+          commit-message: "chore: update manifest commit SHAs"
+          title: "chore: update manifest commit SHAs"
+          labels: auto-bump-manifests
+          body: |
+            This PR bumps the `<branch>@<sha>` refs in `hack/scripts/get-manifests.sh` to the tip of each ref's branch (ODH refs on `opendatahub-io`, RHDS refs on `red-hat-data-services`) and refreshes the vendored trees under `config/manifests/` from the ODH refs.
+
+            Image builds `COPY` those vendored trees (downstream cannot fetch GitHub at build time). RHDS refs are recorded but not used for packaging yet.
+            ${{ steps.update-shas.outputs.fetch-failed == 'true' && format('
+
+            > [!WARNING]
+            > These refs failed to fetch from GitHub and were **not** updated:
+            > `{0}`
+
+            The scheduled run is marked as failed. Please investigate.
+            ', steps.update-shas.outputs.failed-components) || '' }}
+          branch: sync/upgrade-manifest-shas
+          delete-branch: true
+
+      - name: Fail if any SHA fetches failed
+        if: steps.update-shas.outputs.fetch-failed == 'true'
+        env:
+          FAILED_COMPONENTS: ${{ steps.update-shas.outputs.failed-components }}
+        run: |
+          printf '::error::Some component SHA fetches failed: %s\n' "$FAILED_COMPONENTS"
+          exit 1
+
+      - name: Output Summary
+        if: steps.update-shas.outputs.updates-needed == 'true'
+        run: |
+          echo "Updates processed successfully"
+          if [[ "${{ steps.create-pr.outputs.pull-request-operation }}" == "created" ]]; then
+            echo "Pull request created: ${{ steps.create-pr.outputs.pull-request-url }}"
+          elif [[ "${{ steps.create-pr.outputs.pull-request-operation }}" == "updated" ]]; then
+            echo "Pull request updated: ${{ steps.create-pr.outputs.pull-request-url }}"
+          fi

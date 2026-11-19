@@ -75,6 +75,46 @@ func TestOverWriteConditionWhenAnySubRemoved(t *testing.T) {
 	g.Expect(rr.Conditions.GetCondition(readyCondition).Status).To(Equal(metav1.ConditionTrue))
 }
 
+// TestOverWriteConditionAIGridOnlyFollowsGridOperator verifies that with only aiGrid Managed,
+// DeploymentsAvailable follows the grid operator in its own namespace instead of the generic 0/0.
+func TestOverWriteConditionAIGridOnlyFollowsGridOperator(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		objs   []client.Object
+		status metav1.ConditionStatus
+	}{
+		{"grid operator available", []client.Object{readyDeploy(aiGridOperatorDeploymentName, "odh-ai-grid")}, metav1.ConditionTrue},
+		{"grid operator not yet available", nil, metav1.ConditionFalse},
+		{"removed MaaS still tearing down", []client.Object{
+			readyDeploy(aiGridOperatorDeploymentName, "odh-ai-grid"),
+			&appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{
+				Name: maasControllerDeploymentName, Namespace: "opendatahub",
+				Labels: map[string]string{"app.kubernetes.io/part-of": componentName},
+			}},
+		}, metav1.ConditionFalse},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			g := NewWithT(t)
+
+			m := newTestModuleWithNamespace(t, "opendatahub")
+			obj := newTestAIGateway()
+			obj.Spec.AIGrid.ManagementState = managedState
+			rr := newSubModuleRR(t, obj, tc.objs...)
+			rr.Conditions.MarkFalse(
+				status.ConditionDeploymentsAvailable,
+				conditions.WithMessage("0/0 deployments ready"),
+			)
+
+			g.Expect(m.overWriteCondition(context.Background(), rr)).To(Succeed())
+
+			da := rr.Conditions.GetCondition(status.ConditionDeploymentsAvailable)
+			g.Expect(da).NotTo(BeNil())
+			g.Expect(da.Status).To(Equal(tc.status))
+			g.Expect(rr.Conditions.GetCondition(readyCondition).Status).To(Equal(tc.status))
+		})
+	}
+}
+
 // newSubModuleRR builds a ReconciliationRequest with a fake client pre-populated
 // with the given objects, for testing reportSubModuleStatus.
 func newSubModuleRR(t *testing.T, obj *componentApi.AIGateway, objs ...client.Object) *odhtypes.ReconciliationRequest {
@@ -608,7 +648,7 @@ func TestReportSubModuleStatus_AIGridManaged(t *testing.T) {
 		return objs
 	}
 	withOperator := func(objs []client.Object, ready bool) []client.Object {
-		return append(objs, aiGridOperatorDeployment("test-ns", ready))
+		return append(objs, aiGridOperatorDeployment(deriveAIGridNamespace("test-ns"), ready))
 	}
 
 	tests := []struct {
