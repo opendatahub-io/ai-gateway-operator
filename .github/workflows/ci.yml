@@ -20,6 +20,8 @@ on:
       - '.dockerignore'
       - '.golangci.yml'
       - '.golangci.yaml'
+      - '.golangci.toml'
+      - '.golangci.json'
       - '.github/workflows/ci.yml'
       - '!**/*.md'
 
