@@ -3,6 +3,7 @@ name: CI
 on:
   pull_request:
     paths:
+      - '**/*.go'
       - 'api/**'
       - 'cmd/**'
       - 'pkg/**'
@@ -15,7 +16,13 @@ on:
       - 'go.sum'
       - 'Dockerfile'
       - 'Dockerfile.konflux'
+      - 'Dockerfile.dockerignore'
+      - '.dockerignore'
+      - '.golangci.yml'
+      - '.golangci.yaml'
       - '.github/workflows/ci.yml'
+    paths-ignore:
+      - '**/*.md'
 
 permissions: {}
 
