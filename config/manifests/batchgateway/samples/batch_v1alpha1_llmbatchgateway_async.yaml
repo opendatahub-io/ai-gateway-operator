@@ -11,6 +11,8 @@ spec:
   #   name: batch-gateway-secrets
   #   namespace: credentials-ns
   dbBackend: postgresql
+  extraEndpoints:
+  - /v1/classify
   fileStorage:
     s3:
       bucket: llm-d-batch-gateway
@@ -18,16 +20,29 @@ spec:
       endpoint: https://s3.example.com
   apiServer:
     replicas: 1
+    config:
+      batchAPI:
+        # Component-level override of spec.extraEndpoints.
+        extraEndpoints:
+        - /v1/classify
   processor:
     replicas: 1
+    config:
+      inputFileDiskBudgetPercent: 10
+      progressUpdateInterval: 15s
+      resumable:
+        leaseDuration: 5m
+        finalizeConcurrency: 16
+        finalizeTimeout: 30m
+      # Component-level override of spec.extraEndpoints.
+      extraEndpoints:
+      - /v1/classify
     modelGateways:
       llama-3:
         inferencePoolName: llama-pool
       whisper-large:
         inferencePoolName: whisper-pool
-    dispatchMode: async
     asyncConfig:
-      replicas: 1
       concurrency: 8
       drainTimeout: 2m
       resultPollTimeout: 30s
@@ -64,12 +79,16 @@ spec:
           quota_key: "dispatch-quota"
       prometheusURL: http://prometheus:9090
       prometheusCacheTTL: 30s
+      # TLS for the async processor -> inference gateway connection. One
+      # configuration covers every queue; there is no per-queue TLS.
+      # Keys below are keys in the referenced Secret. secretName is required
+      # whenever a cert key is set, and certKey/keyKey must be set together.
       # tls:
       #   secretName: igw-tls-certs
-      #   insecureSkipVerify: false
-      #   caCertKey: ca.crt
-      #   certKey: tls.crt
-      #   keyKey: tls.key
+      #   caCertKey: ca.crt        # custom CA for verifying the gateway
+      #   certKey: tls.crt         # mTLS client cert (needs keyKey)
+      #   keyKey: tls.key          # mTLS client key (needs certKey)
+      #   insecureSkipVerify: false  # not recommended in production
       # transformConfig:
       #   requestTransforms:
       #   - name: gcs-whisper
