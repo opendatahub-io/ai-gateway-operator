@@ -21,8 +21,7 @@ on:
       - '.golangci.yml'
       - '.golangci.yaml'
       - '.github/workflows/ci.yml'
-    paths-ignore:
-      - '**/*.md'
+      - '!**/*.md'
 
 permissions: {}
 
