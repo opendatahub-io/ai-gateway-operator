@@ -16,6 +16,8 @@ const (
 
 	// MaaSRemovalInProgressReason is set on DeploymentsAvailable while MaaS teardown is still running.
 	MaaSRemovalInProgressReason = "MaaSRemovalInProgress"
+	// MaaSRemovalStalledReason is set while maas-controller has acknowledged teardown but not completed it.
+	MaaSRemovalStalledReason = "MaaSRemovalStalled"
 
 	// SubModuleRemovedReason is set on a sub-module condition when its managementState is Removed.
 	SubModuleRemovedReason = "Removed"
