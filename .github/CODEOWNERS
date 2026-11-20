@@ -1,0 +1,10 @@
+# API contract checks (RHOAIENG-103152): the workflow, its pinned baseline,
+# its exclusions and any .rhoai/ descriptor decide what the compatibility
+# checks protect, so changes need an owner's review. Keep this file under the
+# same review.
+#
+# Merges are still gated by Prow through the root OWNERS file; this file asks
+# the operator maintainers on GitHub to review these paths.
+/.github/CODEOWNERS                 @opendatahub-io/ai-gateway-operator
+/.github/workflows/api-contract.yml @opendatahub-io/ai-gateway-operator
+/.rhoai/                            @opendatahub-io/ai-gateway-operator
