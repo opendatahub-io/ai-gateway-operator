@@ -1,7 +1,7 @@
 # Build the manager binary
-FROM registry.access.redhat.com/ubi10/go-toolset:1.26 AS builder
-ARG TARGETOS
-ARG TARGETARCH
+FROM registry.access.redhat.com/ubi9/go-toolset:1.26 AS builder
+ARG CGO_ENABLED=1
+ARG GOEXPERIMENT=strictfipsruntime
 ARG LDFLAGS=""
 ARG GIT_COMMIT=""
 ARG GIT_BRANCH=""
@@ -38,14 +38,13 @@ RUN VERSION_PKG="github.com/opendatahub-io/ai-gateway-operator/pkg/version" && \
     if [ -z "${LDFLAGS}" ] && [ -n "${GIT_COMMIT}" ]; then \
       LDFLAGS="-X ${VERSION_PKG}.Version=${VERSION} -X ${VERSION_PKG}.Commit=${GIT_COMMIT} -X ${VERSION_PKG}.Branch=${GIT_BRANCH} -X ${VERSION_PKG}.Repo=${GIT_REPO}"; \
     fi && \
-    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-$(go env GOARCH)} \
+    CGO_ENABLED=${CGO_ENABLED} GOEXPERIMENT=${GOEXPERIMENT} GOOS=linux GOARCH=$(go env GOARCH) \
     make build-bin BIN_DIR=/workspace/bin BIN_NAME=manager LDFLAGS="${LDFLAGS}"
 
 # Make manifests readable by any user (OpenShift assigns arbitrary UIDs)
 RUN chmod -R a+rX config/manifests/
 
-# Use UBI 10 micro as minimal runtime image
-FROM registry.access.redhat.com/ubi10/ubi-micro:10.0
+FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
 WORKDIR /
 COPY --from=builder /workspace/bin/manager .
 COPY --from=builder /workspace/config/manifests/ /manifests/
