@@ -616,7 +616,7 @@ func testMaaSDisabledRemovesOperands(t *testing.T, maasControllerDeploy, aiGatew
 	// 2. AGO must remove all MaaS operands. On clusters where maas-controller can
 	//    run its self-teardown (real OpenShift), this happens automatically via the
 	//    teardown-requested / teardown-completed annotation handshake. On minimal
-	//    clusters, AGO may take the full setupTimeout.
+	//    clusters, AGO's bounded teardown fallback removes the remaining resources.
 	//    Returns a descriptive string of still-present operands so a timeout failure
 	//    names the specific resource(s) still present rather than just "false".
 	g.Eventually(func() string {
