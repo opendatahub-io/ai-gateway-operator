@@ -179,6 +179,7 @@ func NewReconciler(
 	if err != nil {
 		return err
 	}
+	m.apiReader = mgr.GetAPIReader()
 
 	r, err := reconciler.ReconcilerFor(mgr, &componentApi.AIGateway{}).
 		Owns(&corev1.ConfigMap{}).
@@ -249,6 +250,8 @@ func NewReconciler(
 			deploy.WithCache(),
 			deploy.WithApplyOrder(),
 		)).
+		// After deploy, so a failed upgrade keeps the old scrape configuration.
+		WithAction(m.deleteLegacyMaasControllerPodMonitor).
 		WithAction(deployments.NewAction()).
 		WithAction(m.reportSubModuleStatus).
 		WithAction(m.overWriteCondition).
