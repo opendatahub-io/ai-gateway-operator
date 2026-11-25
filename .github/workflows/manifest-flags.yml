@@ -6,12 +6,6 @@ name: Manifest flags
 # unrelated pull requests red.
 
 on:
-  push:
-    paths:
-      - 'config/manifests/**'
-      - 'hack/scripts/verify-manifest-flags.sh'
-      - 'hack/scripts/get-manifests.sh'
-      - '.github/workflows/manifest-flags.yml'
   pull_request:
     paths:
       - 'config/manifests/**'
