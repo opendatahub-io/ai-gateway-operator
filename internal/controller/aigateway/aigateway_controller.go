@@ -137,6 +137,7 @@ import (
 // Granted by the vendored Grid operator Roles.
 // +kubebuilder:rbac:groups=discovery.k8s.io,resources=endpointslices,verbs=create;delete;get;list;update;watch
 // +kubebuilder:rbac:groups=discovery.k8s.io,resources=endpointslices/restricted,verbs=create
+// +kubebuilder:rbac:groups="",resources=endpoints,resourceNames=grid-operator-signals;grid-operator-swim,verbs=delete
 // +kubebuilder:rbac:groups="",resources=serviceaccounts/token,resourceNames=grid-operator-metrics-scraper,verbs=create
 // +kubebuilder:rbac:groups=extensions.istio.io,resources=wasmplugins,verbs=get
 // +kubebuilder:rbac:groups=extensions.kuadrant.io,resources=telemetrypolicies,verbs=create;delete;get;list;patch;watch
