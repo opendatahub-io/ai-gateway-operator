@@ -185,9 +185,21 @@ func withApprovalAnnotation(crd apiextensionsv1.CustomResourceDefinition) apiext
 // for it to become Established before returning.
 func applyCRDs(ctx context.Context, k8sClient client.Client, crds []apiextensionsv1.CustomResourceDefinition) error {
 	for i := range crds {
-		err := k8sClient.Create(ctx, &crds[i])
-		if err != nil && !k8serr.IsAlreadyExists(err) {
-			return fmt.Errorf("creating CRD %s: %w", crds[i].Name, err)
+		// Get before Create: on clusters where a CRD already exists and is
+		// managed (e.g. OpenShift's Ingress Operator owns the Gateway API
+		// CRDs and a ValidatingAdmissionPolicy denies Create on them), a
+		// blind Create is rejected by admission before the API server can
+		// answer AlreadyExists. Looking first keeps the stub path for bare
+		// clusters (Kind) and skips existing CRDs everywhere else.
+		existing := &apiextensionsv1.CustomResourceDefinition{}
+		err := k8sClient.Get(ctx, client.ObjectKey{Name: crds[i].Name}, existing)
+		if err != nil {
+			if !k8serr.IsNotFound(err) {
+				return fmt.Errorf("getting CRD %s: %w", crds[i].Name, err)
+			}
+			if err := k8sClient.Create(ctx, &crds[i]); err != nil && !k8serr.IsAlreadyExists(err) {
+				return fmt.Errorf("creating CRD %s: %w", crds[i].Name, err)
+			}
 		}
 		if err := waitForCRDEstablished(ctx, k8sClient, crds[i].Name); err != nil {
 			return fmt.Errorf("waiting for CRD %s to establish: %w", crds[i].Name, err)
