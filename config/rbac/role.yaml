@@ -24,6 +24,15 @@ rules:
   - watch
 - apiGroups:
   - ""
+  resourceNames:
+  - grid-operator-signals
+  - grid-operator-swim
+  resources:
+  - endpoints
+  verbs:
+  - delete
+- apiGroups:
+  - ""
   resources:
   - endpoints
   - pods

@@ -137,6 +137,7 @@ import (
 // Granted by the vendored Grid operator Roles.
 // +kubebuilder:rbac:groups=discovery.k8s.io,resources=endpointslices,verbs=create;delete;get;list;update;watch
 // +kubebuilder:rbac:groups=discovery.k8s.io,resources=endpointslices/restricted,verbs=create
+// +kubebuilder:rbac:groups="",resources=endpoints,resourceNames=grid-operator-signals;grid-operator-swim,verbs=delete
 // +kubebuilder:rbac:groups="",resources=serviceaccounts/token,resourceNames=grid-operator-metrics-scraper,verbs=create
 // +kubebuilder:rbac:groups=extensions.istio.io,resources=wasmplugins,verbs=get
 // +kubebuilder:rbac:groups=extensions.kuadrant.io,resources=telemetrypolicies,verbs=create;delete;get;list;patch;watch
@@ -179,6 +180,7 @@ func NewReconciler(
 	if err != nil {
 		return err
 	}
+	m.apiReader = mgr.GetAPIReader()
 
 	r, err := reconciler.ReconcilerFor(mgr, &componentApi.AIGateway{}).
 		Owns(&corev1.ConfigMap{}).
@@ -249,6 +251,8 @@ func NewReconciler(
 			deploy.WithCache(),
 			deploy.WithApplyOrder(),
 		)).
+		// After deploy, so a failed upgrade keeps the old scrape configuration.
+		WithAction(m.deleteLegacyMaasControllerPodMonitor).
 		WithAction(deployments.NewAction()).
 		WithAction(m.reportSubModuleStatus).
 		WithAction(m.overWriteCondition).
