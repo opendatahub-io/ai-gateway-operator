@@ -142,9 +142,11 @@ spec:
                     - message: timeout must be at least 1ms
                       rule: duration(self) >= duration('1ms')
                 required:
-                - nemo
                 - timeout
                 type: object
+                x-kubernetes-validations:
+                - message: exactly one of the fields in [nemo] must be set
+                  rule: '[has(self.nemo)].filter(x,x==true).size() == 1'
             required:
             - checks
             - provider
